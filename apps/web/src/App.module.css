@@ -1,0 +1,215 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  gap: var(--space-lg);
+}
+
+/* ─── Header ──────────────────────────────────────────── */
+
+.header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.title {
+  font-size: 3rem;
+  font-weight: 700;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.1;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  max-width: 480px;
+}
+
+/* ─── Cards ───────────────────────────────────────────── */
+
+.cards {
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--space-xl);
+}
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 240px;
+  max-width: 320px;
+  flex: 1;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.card h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card p {
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.icon {
+  font-size: 2.5rem;
+}
+
+/* ─── Buttons ─────────────────────────────────────────── */
+
+.primaryButton {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 32px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  width: 100%;
+}
+
+.primaryButton:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.4);
+}
+
+.primaryButton:active {
+  transform: scale(0.98);
+}
+
+.secondaryButton {
+  background: transparent;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px 32px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  width: 100%;
+}
+
+.secondaryButton:hover {
+  background: rgba(108, 92, 231, 0.1);
+}
+
+.secondaryButton:active {
+  background: rgba(108, 92, 231, 0.2);
+}
+
+/* ─── How It Works Steps ──────────────────────────────── */
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-2xl);
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.stepNumber {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.stepArrow {
+  color: var(--border);
+  font-size: 1.25rem;
+}
+
+/* ─── Footer ──────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  gap: var(--space-lg);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-top: var(--space-2xl);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.version {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  opacity: 0.5;
+  margin-top: var(--space-md);
+}
+
+/* ─── Mobile ──────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 2.25rem;
+  }
+
+  .subtitle {
+    font-size: 1rem;
+  }
+
+  .cards {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .card {
+    max-width: 100%;
+  }
+
+  .steps {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .stepArrow {
+    transform: rotate(90deg);
+  }
+}

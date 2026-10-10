@@ -1,0 +1,25 @@
+{
+  "name": "@quickdrop/signaling",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "@quickdrop/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.16.0",
+    "rimraf": "^6.0.0"
+  }
+}

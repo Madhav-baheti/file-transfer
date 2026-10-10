@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION } from '@quickdrop/protocol';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
 import { PeerManager } from './lib/peer';
+import { createConnectionTimer, type ConnectionTimer } from './lib/connectionTimer';
 import { CreateScreen } from './screens/CreateScreen';
 import { JoinScreen } from './screens/JoinScreen';
 import { ConnectedScreen } from './screens/ConnectedScreen';
@@ -15,41 +16,17 @@ export function App() {
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
 
-  // Keep latest status in a ref to avoid stale closures in callbacks (Item 2)
+  // Keep latest status in a ref to avoid stale closures in callbacks
   const statusRef = useRef(state.status);
   statusRef.current = state.status;
 
-  // Timers: 20s connection timeout and 5s disconnect grace timer
-  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearConnectionTimeout = () => {
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = null;
-    }
-  };
-
-  const clearDisconnectGraceTimeout = () => {
-    if (disconnectGraceTimeoutRef.current) {
-      clearTimeout(disconnectGraceTimeoutRef.current);
-      disconnectGraceTimeoutRef.current = null;
-    }
-  };
-
-  const startConnectionTimeout = () => {
-    clearConnectionTimeout();
-    connectionTimeoutRef.current = setTimeout(() => {
-      if (statusRef.current === 'connecting' || statusRef.current === 'waiting') {
-        cleanupConnections();
-        actions.fail('Connection timed out');
-      }
-    }, 20000); // 20 second connection timeout per Item 4
-  };
+  // Timers created via createConnectionTimer (Item 3)
+  const connectionTimerRef = useRef<ConnectionTimer | null>(null);
+  const disconnectGraceTimerRef = useRef<ConnectionTimer | null>(null);
 
   const cleanupConnections = () => {
-    clearConnectionTimeout();
-    clearDisconnectGraceTimeout();
+    connectionTimerRef.current?.clear();
+    disconnectGraceTimerRef.current?.clear();
 
     peerRef.current?.close();
     peerRef.current = null;
@@ -69,41 +46,87 @@ export function App() {
     actions.reset();
   };
 
+  // Initialize connection and grace timers once
+  if (!connectionTimerRef.current) {
+    connectionTimerRef.current = createConnectionTimer(20000, () => {
+      if (statusRef.current === 'connecting' || statusRef.current === 'waiting') {
+        cleanupConnections();
+        actions.fail('Connection timed out');
+      }
+    });
+  }
+
+  if (!disconnectGraceTimerRef.current) {
+    disconnectGraceTimerRef.current = createConnectionTimer(5000, () => {
+      if (statusRef.current === 'connected') {
+        handleDisconnect();
+      }
+    });
+  }
+
   const setupPeerConnectionEvents = () => {
     return {
       onDataChannelOpen: () => {
-        clearConnectionTimeout();
-        clearDisconnectGraceTimeout();
+        // Ignore if session is idle, closed, or failed
+        if (
+          statusRef.current === 'idle' ||
+          statusRef.current === 'closed' ||
+          statusRef.current === 'failed'
+        ) {
+          return;
+        }
+        connectionTimerRef.current?.clear();
+        disconnectGraceTimerRef.current?.clear();
         actions.connected();
       },
       onDataChannelClose: () => {
+        // Item 2: onDataChannelClose must be ignored when status is idle, closed, or failed
+        if (
+          statusRef.current === 'idle' ||
+          statusRef.current === 'closed' ||
+          statusRef.current === 'failed'
+        ) {
+          return;
+        }
         handleDisconnect();
       },
       onMessage: (data: string) => {
+        if (statusRef.current !== 'connected') return;
         // Phase 3: PLAINTEXT text messages capped at 4000 characters
         actions.addMessage('peer', data);
       },
       onConnectionStateChange: (pcState: RTCPeerConnectionState) => {
-        // Item 3: wire onConnectionStateChange for both peers
+        // Item 2: onConnectionStateChange must be ignored when status is idle, closed, or failed
+        if (
+          statusRef.current === 'idle' ||
+          statusRef.current === 'closed' ||
+          statusRef.current === 'failed'
+        ) {
+          return;
+        }
+
         if (pcState === 'connected') {
-          clearDisconnectGraceTimeout();
+          disconnectGraceTimerRef.current?.clear();
         } else if (pcState === 'failed') {
           cleanupConnections();
           actions.fail(
             'Could not establish a direct connection (the network may be blocking peer-to-peer)',
           );
         } else if (pcState === 'disconnected') {
-          clearDisconnectGraceTimeout();
-          disconnectGraceTimeoutRef.current = setTimeout(() => {
-            if (statusRef.current === 'connected') {
-              handleDisconnect();
-            }
-          }, 5000); // wait 5 seconds; if still not connected, close
+          disconnectGraceTimerRef.current?.start();
         } else if (pcState === 'closed') {
           handleDisconnect();
         }
       },
       onError: (err: unknown) => {
+        // Item 2: onError must be ignored when status is idle, closed, or failed
+        if (
+          statusRef.current === 'idle' ||
+          statusRef.current === 'closed' ||
+          statusRef.current === 'failed'
+        ) {
+          return;
+        }
         console.error('[WebRTC Error]', err);
         cleanupConnections();
         actions.fail('WebRTC connection failed');
@@ -129,7 +152,7 @@ export function App() {
         } else if (msg.type === 'peer-joined') {
           // Peer found -> start 20s connection timeout and initiate WebRTC offer
           actions.peerFound();
-          startConnectionTimeout();
+          connectionTimerRef.current?.start();
 
           const callbacks = setupPeerConnectionEvents();
 
@@ -183,7 +206,7 @@ export function App() {
       sig.onMessage((msg) => {
         if (msg.type === 'joined') {
           // Responder successfully joined the session -> start 20s connection timeout
-          startConnectionTimeout();
+          connectionTimerRef.current?.start();
 
           const callbacks = setupPeerConnectionEvents();
 
@@ -195,8 +218,8 @@ export function App() {
 
           peerRef.current = peer;
         } else if (msg.type === 'error') {
-          // Item 8: Wrong code allows retrying on the Join screen without returning home
-          clearConnectionTimeout();
+          // Wrong code allows retrying on the Join screen without returning home
+          connectionTimerRef.current?.clear();
           peerRef.current?.close();
           peerRef.current = null;
           signalingRef.current?.close();
@@ -242,7 +265,7 @@ export function App() {
     }
   };
 
-  // Clean up on component unmount (Item 4)
+  // Clean up on component unmount
   useEffect(() => {
     return () => {
       cleanupConnections();
@@ -292,7 +315,7 @@ export function App() {
           <CreateScreen code={state.code} onCancel={handleReset} />
         )}
 
-        {/* Item 8: If responder failed (e.g. wrong code), stay on JoinScreen so user can retry */}
+        {/* If responder failed (e.g. wrong code), stay on JoinScreen so user can retry */}
         {((state.status === 'connecting' && state.role === 'responder') ||
           (state.status === 'failed' && state.role === 'responder')) && (
           <JoinScreen

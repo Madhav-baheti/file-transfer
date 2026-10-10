@@ -32,7 +32,7 @@ class MockWebSocket {
 // @ts-expect-error Mock browser WebSocket
 globalThis.WebSocket = MockWebSocket;
 
-describe('SignalingClient Disconnect Suppression & Connection Timeout', () => {
+describe('SignalingClient Disconnect Suppression', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -75,26 +75,5 @@ describe('SignalingClient Disconnect Suppression & Connection Timeout', () => {
     socketInstance.onclose?.();
 
     expect(onDisconnect).toHaveBeenCalled();
-  });
-
-  it('connection timeout correctly expires after 20 seconds', () => {
-    const onTimeout = vi.fn();
-    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      onTimeout();
-    }, 20000);
-
-    // After 10s: not yet triggered
-    vi.advanceTimersByTime(10000);
-    expect(onTimeout).not.toHaveBeenCalled();
-
-    // After another 10s (total 20s): triggered
-    vi.advanceTimersByTime(10000);
-    expect(onTimeout).toHaveBeenCalledTimes(1);
-
-    // Verify clearing works
-    clearTimeout(timeoutId);
-    timeoutId = null;
-    vi.advanceTimersByTime(20000);
-    expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,12 +54,14 @@ function parseIceServers(): RTCIceServer[] {
  * 1. Sequential processing of signaling messages via a Promise chain.
  * 2. Buffering of early ICE candidates until setRemoteDescription completes.
  * 3. Strict Zod validation of incoming SDP and ICE payloads.
+ * 4. Safe close() lifecycle: detaches all callbacks and ignores post-close messages/events.
  */
 export class PeerManager {
   private pc: RTCPeerConnection;
   private channel: RTCDataChannel | null = null;
   private options: PeerManagerOptions;
   private unsubscribeSignaling: (() => void) | null = null;
+  private closed = false;
 
   // Sequential queue for incoming signaling messages
   private messageQueue: Promise<void> = Promise.resolve();
@@ -85,10 +87,12 @@ export class PeerManager {
 
   private setupPeerConnection(): void {
     this.pc.onconnectionstatechange = () => {
+      if (this.closed) return;
       this.options.onConnectionStateChange?.(this.pc.connectionState);
     };
 
     this.pc.onicecandidate = (event) => {
+      if (this.closed) return;
       if (event.candidate) {
         this.options.signaling.send({
           type: 'signal',
@@ -99,6 +103,7 @@ export class PeerManager {
     };
 
     this.pc.ondatachannel = (event) => {
+      if (this.closed) return;
       this.attachDataChannel(event.channel);
     };
   }
@@ -115,14 +120,17 @@ export class PeerManager {
     this.channel = channel;
 
     this.channel.onopen = () => {
+      if (this.closed) return;
       this.options.onDataChannelOpen?.();
     };
 
     this.channel.onclose = () => {
+      if (this.closed) return;
       this.options.onDataChannelClose?.();
     };
 
     this.channel.onmessage = (event) => {
+      if (this.closed) return;
       if (typeof event.data === 'string') {
         // Enforce max 4000 chars on receive
         const trimmed = event.data.slice(0, 4000);
@@ -131,24 +139,32 @@ export class PeerManager {
     };
 
     this.channel.onerror = (err) => {
+      if (this.closed) return;
       this.options.onError?.(err);
     };
   }
 
   private setupSignaling(): void {
     this.unsubscribeSignaling = this.options.signaling.onMessage((msg) => {
+      if (this.closed) return;
       if (msg.type !== 'signal') return;
 
       // Queue message processing strictly one-by-one
       this.messageQueue = this.messageQueue
-        .then(() => this.processSignalMessage(msg.kind, msg.data))
+        .then(() => {
+          if (this.closed) return;
+          return this.processSignalMessage(msg.kind, msg.data);
+        })
         .catch((err) => {
+          if (this.closed) return;
           this.options.onError?.(err);
         });
     });
   }
 
   private async processSignalMessage(kind: 'offer' | 'answer' | 'ice', rawData: unknown): Promise<void> {
+    if (this.closed) return;
+
     if (kind === 'offer') {
       const parsedSdp = SdpPayloadSchema.safeParse(rawData);
       if (!parsedSdp.success || parsedSdp.data.type !== 'offer') {
@@ -157,11 +173,15 @@ export class PeerManager {
       }
 
       await this.pc.setRemoteDescription(new RTCSessionDescription(parsedSdp.data as RTCSessionDescriptionInit));
+      if (this.closed) return;
       this.remoteDescriptionSet = true;
       await this.flushIceCandidateBuffer();
+      if (this.closed) return;
 
       const answer = await this.pc.createAnswer();
+      if (this.closed) return;
       await this.pc.setLocalDescription(answer);
+      if (this.closed) return;
 
       this.options.signaling.send({
         type: 'signal',
@@ -176,6 +196,7 @@ export class PeerManager {
       }
 
       await this.pc.setRemoteDescription(new RTCSessionDescription(parsedSdp.data as RTCSessionDescriptionInit));
+      if (this.closed) return;
       this.remoteDescriptionSet = true;
       await this.flushIceCandidateBuffer();
     } else if (kind === 'ice') {
@@ -199,10 +220,13 @@ export class PeerManager {
     const candidates = [...this.iceCandidateBuffer];
     this.iceCandidateBuffer = [];
     for (const candidate of candidates) {
+      if (this.closed) return;
       try {
         await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
-        this.options.onError?.(err);
+        if (!this.closed) {
+          this.options.onError?.(err);
+        }
       }
     }
   }
@@ -211,9 +235,12 @@ export class PeerManager {
    * Called by the initiator to create the initial SDP offer and dispatch it.
    */
   public async startOffer(): Promise<void> {
+    if (this.closed) return;
     try {
       const offer = await this.pc.createOffer();
+      if (this.closed) return;
       await this.pc.setLocalDescription(offer);
+      if (this.closed) return;
 
       this.options.signaling.send({
         type: 'signal',
@@ -221,7 +248,9 @@ export class PeerManager {
         data: offer,
       });
     } catch (err) {
-      this.options.onError?.(err);
+      if (!this.closed) {
+        this.options.onError?.(err);
+      }
       throw err;
     }
   }
@@ -231,6 +260,9 @@ export class PeerManager {
    * Capped at 4000 characters.
    */
   public send(message: string): void {
+    if (this.closed) {
+      throw new Error('PeerManager is closed');
+    }
     if (this.channel && this.channel.readyState === 'open') {
       const payload = message.slice(0, 4000);
       this.channel.send(payload);
@@ -240,16 +272,32 @@ export class PeerManager {
   }
 
   public close(): void {
+    if (this.closed) return;
+    this.closed = true;
+
+    // 1. Unsubscribe from signaling
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
       this.unsubscribeSignaling = null;
     }
 
+    // 2. Detach channel handlers BEFORE closing channel
     if (this.channel) {
+      this.channel.onopen = null;
+      this.channel.onclose = null;
+      this.channel.onmessage = null;
+      this.channel.onerror = null;
       this.channel.close();
       this.channel = null;
     }
 
+    // 3. Detach pc handlers BEFORE closing pc
+    this.pc.onconnectionstatechange = null;
+    this.pc.onicecandidate = null;
+    this.pc.ondatachannel = null;
     this.pc.close();
+
+    // 4. Clear candidate buffers
+    this.iceCandidateBuffer = [];
   }
 }

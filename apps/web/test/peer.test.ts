@@ -11,7 +11,11 @@ class MockRTCDataChannel {
   public onmessage: ((e: { data: unknown }) => void) | null = null;
   public onerror: ((err: unknown) => void) | null = null;
   public send = vi.fn();
-  public close = vi.fn();
+  public close = vi.fn(() => {
+    this.readyState = 'closed';
+    // Emulate browser event if handler is still attached
+    this.onclose?.();
+  });
 }
 
 class MockRTCPeerConnection {
@@ -136,5 +140,50 @@ describe('PeerManager Signaling & ICE Buffering', () => {
     peer.send(longText);
 
     expect(channel.send).toHaveBeenCalledWith('a'.repeat(4000));
+  });
+
+  it('close() does not trigger onDataChannelClose or onError afterwards, and ignores incoming signals', async () => {
+    const onDataChannelClose = vi.fn();
+    const onError = vi.fn();
+    const onConnectionStateChange = vi.fn();
+    const onMessage = vi.fn();
+
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: true,
+      onDataChannelClose,
+      onError,
+      onConnectionStateChange,
+      onMessage,
+    });
+
+    const pcInstance = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
+
+    // Close the peer manager
+    peer.close();
+
+    // Verify close() was called on pc
+    expect(pcInstance.close).toHaveBeenCalled();
+
+    // Ensure callbacks did not fire during or after close
+    expect(onDataChannelClose).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onConnectionStateChange).not.toHaveBeenCalled();
+
+    // Verify that signaling messages arriving after close are ignored
+    signalHandler?.({
+      type: 'signal',
+      kind: 'offer',
+      data: { type: 'offer', sdp: 'mock-sdp' },
+    });
+
+    await Promise.resolve();
+
+    // setRemoteDescription must NOT be called because manager is closed
+    expect(pcInstance.setRemoteDescription).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+
+    // Calling send() on closed manager throws
+    expect(() => peer.send('test')).toThrow('PeerManager is closed');
   });
 });

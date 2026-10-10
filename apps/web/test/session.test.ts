@@ -65,7 +65,7 @@ describe('sessionReducer', () => {
     expect(next.status).toBe('connecting');
   });
 
-  it('handles CONNECTED and transitions to connected state', () => {
+  it('transition guard: CONNECTED only transitions when currently connecting', () => {
     const connectingState: SessionState = {
       ...initialSessionState,
       status: 'connecting',
@@ -76,34 +76,66 @@ describe('sessionReducer', () => {
     const next = sessionReducer(connectingState, { type: 'CONNECTED' });
     expect(next.status).toBe('connected');
     expect(next.error).toBeNull();
+
+    // CONNECTED must be ignored if status is idle or waiting
+    const fromIdle = sessionReducer(initialSessionState, { type: 'CONNECTED' });
+    expect(fromIdle.status).toBe('idle');
+
+    const waitingState: SessionState = { ...initialSessionState, status: 'waiting' };
+    const fromWaiting = sessionReducer(waitingState, { type: 'CONNECTED' });
+    expect(fromWaiting.status).toBe('waiting');
   });
 
-  it('handles ADD_MESSAGE for sent and received messages', () => {
+  it('transition guard: ignore CONNECTED once failed', () => {
+    const failedState: SessionState = {
+      ...initialSessionState,
+      status: 'failed',
+      error: 'Network error',
+    };
+
+    const next = sessionReducer(failedState, { type: 'CONNECTED' });
+    expect(next.status).toBe('failed');
+    expect(next.error).toBe('Network error');
+  });
+
+  it('transition guard: ignore PEER_FOUND, CONNECTED, and FAIL once closed', () => {
+    const closedState: SessionState = {
+      ...initialSessionState,
+      status: 'closed',
+    };
+
+    const afterPeer = sessionReducer(closedState, { type: 'PEER_FOUND' });
+    expect(afterPeer.status).toBe('closed');
+
+    const afterConnected = sessionReducer(closedState, { type: 'CONNECTED' });
+    expect(afterConnected.status).toBe('closed');
+
+    const afterFail = sessionReducer(closedState, { type: 'FAIL', error: 'Ignored error' });
+    expect(afterFail.status).toBe('closed');
+    expect(afterFail.error).toBeNull();
+  });
+
+  it('handles ADD_MESSAGE with pre-generated id and timestamp (pure reducer)', () => {
     const connectedState: SessionState = {
       ...initialSessionState,
       status: 'connected',
       role: 'initiator',
     };
 
-    const withFirstMsg = sessionReducer(connectedState, {
+    const msg = {
+      id: 'msg-1',
+      sender: 'self' as const,
+      text: 'Hello from device A',
+      timestamp: '12:00',
+    };
+
+    const withMsg = sessionReducer(connectedState, {
       type: 'ADD_MESSAGE',
-      message: { sender: 'self', text: 'Hello from device A' },
+      message: msg,
     });
 
-    expect(withFirstMsg.messages.length).toBe(1);
-    expect(withFirstMsg.messages[0].sender).toBe('self');
-    expect(withFirstMsg.messages[0].text).toBe('Hello from device A');
-    expect(withFirstMsg.messages[0].id).toBeDefined();
-    expect(withFirstMsg.messages[0].timestamp).toBeDefined();
-
-    const withSecondMsg = sessionReducer(withFirstMsg, {
-      type: 'ADD_MESSAGE',
-      message: { sender: 'peer', text: 'Hello back from device B' },
-    });
-
-    expect(withSecondMsg.messages.length).toBe(2);
-    expect(withSecondMsg.messages[1].sender).toBe('peer');
-    expect(withSecondMsg.messages[1].text).toBe('Hello back from device B');
+    expect(withMsg.messages.length).toBe(1);
+    expect(withMsg.messages[0]).toEqual(msg);
   });
 
   it('handles FAIL and records error message', () => {

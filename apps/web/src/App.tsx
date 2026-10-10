@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PROTOCOL_VERSION } from '@quickdrop/protocol';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
@@ -10,12 +10,50 @@ import styles from './App.module.css';
 
 export function App() {
   const { state, actions } = useSessionStateMachine();
+  const [sendError, setSendError] = useState<string | null>(null);
+
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
 
+  // Keep latest status in a ref to avoid stale closures in callbacks (Item 2)
+  const statusRef = useRef(state.status);
+  statusRef.current = state.status;
+
+  // Timers: 20s connection timeout and 5s disconnect grace timer
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearConnectionTimeout = () => {
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
+    }
+  };
+
+  const clearDisconnectGraceTimeout = () => {
+    if (disconnectGraceTimeoutRef.current) {
+      clearTimeout(disconnectGraceTimeoutRef.current);
+      disconnectGraceTimeoutRef.current = null;
+    }
+  };
+
+  const startConnectionTimeout = () => {
+    clearConnectionTimeout();
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (statusRef.current === 'connecting' || statusRef.current === 'waiting') {
+        cleanupConnections();
+        actions.fail('Connection timed out');
+      }
+    }, 20000); // 20 second connection timeout per Item 4
+  };
+
   const cleanupConnections = () => {
+    clearConnectionTimeout();
+    clearDisconnectGraceTimeout();
+
     peerRef.current?.close();
     peerRef.current = null;
+
     signalingRef.current?.close();
     signalingRef.current = null;
   };
@@ -27,12 +65,56 @@ export function App() {
 
   const handleReset = () => {
     cleanupConnections();
+    setSendError(null);
     actions.reset();
+  };
+
+  const setupPeerConnectionEvents = () => {
+    return {
+      onDataChannelOpen: () => {
+        clearConnectionTimeout();
+        clearDisconnectGraceTimeout();
+        actions.connected();
+      },
+      onDataChannelClose: () => {
+        handleDisconnect();
+      },
+      onMessage: (data: string) => {
+        // Phase 3: PLAINTEXT text messages capped at 4000 characters
+        actions.addMessage('peer', data);
+      },
+      onConnectionStateChange: (pcState: RTCPeerConnectionState) => {
+        // Item 3: wire onConnectionStateChange for both peers
+        if (pcState === 'connected') {
+          clearDisconnectGraceTimeout();
+        } else if (pcState === 'failed') {
+          cleanupConnections();
+          actions.fail(
+            'Could not establish a direct connection (the network may be blocking peer-to-peer)',
+          );
+        } else if (pcState === 'disconnected') {
+          clearDisconnectGraceTimeout();
+          disconnectGraceTimeoutRef.current = setTimeout(() => {
+            if (statusRef.current === 'connected') {
+              handleDisconnect();
+            }
+          }, 5000); // wait 5 seconds; if still not connected, close
+        } else if (pcState === 'closed') {
+          handleDisconnect();
+        }
+      },
+      onError: (err: unknown) => {
+        console.error('[WebRTC Error]', err);
+        cleanupConnections();
+        actions.fail('WebRTC connection failed');
+      },
+    };
   };
 
   // ─── 1. Initiator: Create Session Flow ────────────────────────────────────────
   const handleStartCreate = async () => {
     cleanupConnections();
+    setSendError(null);
     actions.startCreate();
 
     const sig = new SignalingClient();
@@ -45,48 +127,43 @@ export function App() {
         if (msg.type === 'created') {
           actions.created(msg.code);
         } else if (msg.type === 'peer-joined') {
-          // Responder has entered the session -> transition to connecting & start offer
+          // Peer found -> start 20s connection timeout and initiate WebRTC offer
           actions.peerFound();
+          startConnectionTimeout();
+
+          const callbacks = setupPeerConnectionEvents();
 
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: true,
-            onDataChannelOpen: () => {
-              actions.connected();
-            },
-            onDataChannelClose: () => {
-              handleDisconnect();
-            },
-            onMessage: (data) => {
-              // Phase 3: PLAINTEXT text messages only
-              actions.addMessage('peer', data);
-            },
-            onError: (err) => {
-              console.error('[WebRTC Initiator Error]', err);
-              actions.fail('WebRTC connection failed');
-            },
+            ...callbacks,
           });
 
           peerRef.current = peer;
           peer.startOffer().catch((err) => {
             console.error('[WebRTC startOffer Error]', err);
+            cleanupConnections();
             actions.fail('Failed to create WebRTC offer');
           });
         } else if (msg.type === 'peer-closed') {
           handleDisconnect();
         } else if (msg.type === 'error') {
+          cleanupConnections();
           actions.fail(msg.reason);
         }
       });
 
       sig.onDisconnect(() => {
-        if (state.status === 'waiting' || state.status === 'connecting') {
+        // Use statusRef to prevent stale closures
+        if (statusRef.current === 'waiting' || statusRef.current === 'connecting') {
+          cleanupConnections();
           actions.fail('Disconnected from signaling server');
         }
       });
 
       sig.send({ type: 'create' });
     } catch {
+      cleanupConnections();
       actions.fail('Could not connect to signaling server. Is it running?');
     }
   };
@@ -94,6 +171,7 @@ export function App() {
   // ─── 2. Responder: Join Session Flow ──────────────────────────────────────────
   const handleStartJoin = async (inputCode: string) => {
     cleanupConnections();
+    setSendError(null);
     actions.startJoin(inputCode);
 
     const sig = new SignalingClient();
@@ -104,28 +182,25 @@ export function App() {
 
       sig.onMessage((msg) => {
         if (msg.type === 'joined') {
-          // Responder successfully joined the session
+          // Responder successfully joined the session -> start 20s connection timeout
+          startConnectionTimeout();
+
+          const callbacks = setupPeerConnectionEvents();
+
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: false,
-            onDataChannelOpen: () => {
-              actions.connected();
-            },
-            onDataChannelClose: () => {
-              handleDisconnect();
-            },
-            onMessage: (data) => {
-              // Phase 3: PLAINTEXT text messages only
-              actions.addMessage('peer', data);
-            },
-            onError: (err) => {
-              console.error('[WebRTC Responder Error]', err);
-              actions.fail('WebRTC connection failed');
-            },
+            ...callbacks,
           });
 
           peerRef.current = peer;
         } else if (msg.type === 'error') {
+          // Item 8: Wrong code allows retrying on the Join screen without returning home
+          clearConnectionTimeout();
+          peerRef.current?.close();
+          peerRef.current = null;
+          signalingRef.current?.close();
+          signalingRef.current = null;
           actions.fail(msg.reason);
         } else if (msg.type === 'peer-closed') {
           handleDisconnect();
@@ -133,26 +208,41 @@ export function App() {
       });
 
       sig.onDisconnect(() => {
-        if (state.status === 'connecting') {
+        // Use statusRef to prevent stale closures
+        if (statusRef.current === 'connecting') {
+          cleanupConnections();
           actions.fail('Disconnected from signaling server');
         }
       });
 
       sig.send({ type: 'join', code: inputCode });
     } catch {
+      cleanupConnections();
       actions.fail('Could not connect to signaling server. Is it running?');
     }
   };
 
   // ─── 3. Send message over RTCDataChannel ──────────────────────────────────────
   const handleSendMessage = (text: string) => {
-    if (peerRef.current && state.status === 'connected') {
-      peerRef.current.send(text);
-      actions.addMessage('self', text);
+    setSendError(null);
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (!peerRef.current || statusRef.current !== 'connected') {
+      setSendError('Cannot send: data channel is not connected');
+      return;
+    }
+
+    try {
+      peerRef.current.send(trimmed);
+      actions.addMessage('self', trimmed);
+    } catch (err) {
+      console.error('[Send Message Error]', err);
+      setSendError('Failed to send message: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
-  // Clean up on component unmount
+  // Clean up on component unmount (Item 4)
   useEffect(() => {
     return () => {
       cleanupConnections();
@@ -202,12 +292,14 @@ export function App() {
           <CreateScreen code={state.code} onCancel={handleReset} />
         )}
 
-        {state.status === 'connecting' && state.role === 'responder' && (
+        {/* Item 8: If responder failed (e.g. wrong code), stay on JoinScreen so user can retry */}
+        {((state.status === 'connecting' && state.role === 'responder') ||
+          (state.status === 'failed' && state.role === 'responder')) && (
           <JoinScreen
             onJoin={handleStartJoin}
             onCancel={handleReset}
             error={state.error}
-            isConnecting={Boolean(state.code)}
+            isConnecting={state.status === 'connecting' && Boolean(state.code)}
           />
         )}
 
@@ -228,16 +320,19 @@ export function App() {
             messages={state.messages}
             onSendMessage={handleSendMessage}
             onDisconnect={handleDisconnect}
+            sendError={sendError}
           />
         )}
 
-        {(state.status === 'failed' || state.status === 'closed') && (
+        {/* Failed or Closed for initiator or unhandled states */}
+        {((state.status === 'failed' && state.role !== 'responder') ||
+          state.status === 'closed') && (
           <div className={styles.card}>
             <span className={styles.icon}>
               {state.status === 'failed' ? '⚠️' : '🔒'}
             </span>
             <h2>{state.status === 'failed' ? 'Connection Failed' : 'Session Closed'}</h2>
-            <p>{state.error || 'The connection was closed.'}</p>
+            <p>{state.error || 'The session was closed.'}</p>
             <button className={styles.primaryButton} onClick={handleReset} type="button">
               Return Home
             </button>

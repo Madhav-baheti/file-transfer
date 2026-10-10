@@ -30,7 +30,7 @@ export type SessionAction =
   | { type: 'START_JOIN'; code: string }
   | { type: 'PEER_FOUND' }
   | { type: 'CONNECTED' }
-  | { type: 'ADD_MESSAGE'; message: Omit<ChatMessage, 'id' | 'timestamp'> }
+  | { type: 'ADD_MESSAGE'; message: ChatMessage }
   | { type: 'FAIL'; error: string }
   | { type: 'CLOSE' }
   | { type: 'RESET' };
@@ -43,6 +43,13 @@ export const initialSessionState: SessionState = {
   messages: [],
 };
 
+/**
+ * Pure reducer for the session pairing & transfer state machine.
+ * Transition guards:
+ * - CONNECTED is only valid from 'connecting' (ignored otherwise).
+ * - PEER_FOUND, CONNECTED, and FAIL are ignored once status is 'closed'.
+ * - CONNECTED is ignored once status is 'failed'.
+ */
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case 'START_CREATE':
@@ -83,39 +90,49 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         messages: [],
       };
 
-    case 'PEER_FOUND':
+    case 'PEER_FOUND': {
+      // Ignore if session has already closed or failed
+      if (state.status === 'closed' || state.status === 'failed') {
+        return state;
+      }
       return {
         ...state,
         status: 'connecting',
         error: null,
       };
+    }
 
-    case 'CONNECTED':
+    case 'CONNECTED': {
+      // Guard: CONNECTED is only allowed when currently in 'connecting'
+      // Ignore if closed, failed, waiting, or already connected
+      if (state.status !== 'connecting') {
+        return state;
+      }
       return {
         ...state,
         status: 'connected',
         error: null,
       };
+    }
 
     case 'ADD_MESSAGE': {
-      const newMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
-        sender: action.message.sender,
-        text: action.message.text,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
       return {
         ...state,
-        messages: [...state.messages, newMessage],
+        messages: [...state.messages, action.message],
       };
     }
 
-    case 'FAIL':
+    case 'FAIL': {
+      // Ignore failure events if the session was already closed
+      if (state.status === 'closed') {
+        return state;
+      }
       return {
         ...state,
         status: 'failed',
         error: action.error,
       };
+    }
 
     case 'CLOSE':
       return {
@@ -145,8 +162,16 @@ export function useSessionStateMachine() {
       startJoin: (code: string) => dispatch({ type: 'START_JOIN', code }),
       peerFound: () => dispatch({ type: 'PEER_FOUND' }),
       connected: () => dispatch({ type: 'CONNECTED' }),
-      addMessage: (sender: 'self' | 'peer', text: string) =>
-        dispatch({ type: 'ADD_MESSAGE', message: { sender, text } }),
+      addMessage: (sender: 'self' | 'peer', text: string) => {
+        // ID and timestamp generation moved out of reducer so reducer remains pure
+        const message: ChatMessage = {
+          id: Math.random().toString(36).substring(2, 9),
+          sender,
+          text: text.slice(0, 4000),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        dispatch({ type: 'ADD_MESSAGE', message });
+      },
       fail: (error: string) => dispatch({ type: 'FAIL', error }),
       close: () => dispatch({ type: 'CLOSE' }),
       reset: () => dispatch({ type: 'RESET' }),

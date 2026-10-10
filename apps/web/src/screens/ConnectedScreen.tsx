@@ -7,6 +7,7 @@ interface ConnectedScreenProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
   onDisconnect: () => void;
+  sendError?: string | null;
 }
 
 export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
@@ -14,13 +15,15 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
   messages,
   onSendMessage,
   onDisconnect,
+  sendError,
 }) => {
   const [inputText, setInputText] = useState('');
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputText.trim()) {
-      onSendMessage(inputText.trim());
+    const trimmed = inputText.trim();
+    if (trimmed) {
+      onSendMessage(trimmed);
       setInputText('');
     }
   };
@@ -58,11 +61,14 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         )}
       </div>
 
+      {sendError && <p className={styles.errorMessage}>{sendError}</p>}
+
       <form onSubmit={handleSend} className={styles.chatInputRow}>
         <input
           type="text"
           className={styles.textInput}
-          placeholder="Type a plaintext message..."
+          placeholder="Type a plaintext message (max 4000 chars)..."
+          maxLength={4000}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
         />

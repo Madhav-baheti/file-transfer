@@ -16,12 +16,14 @@ export class SignalingClient {
   private messageListeners = new Set<SignalingEventHandler>();
   private disconnectListeners = new Set<() => void>();
   private errorListeners = new Set<(err: Event) => void>();
+  private closedByUs = false;
 
   constructor(url?: string) {
     this.url = url || import.meta.env.VITE_SIGNALING_URL || 'ws://localhost:3001';
   }
 
   public connect(): Promise<void> {
+    this.closedByUs = false;
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.url);
@@ -31,19 +33,24 @@ export class SignalingClient {
         };
 
         this.ws.onerror = (err) => {
-          for (const listener of this.errorListeners) {
-            listener(err);
+          if (!this.closedByUs) {
+            for (const listener of this.errorListeners) {
+              listener(err);
+            }
           }
           reject(err);
         };
 
         this.ws.onclose = () => {
-          for (const listener of this.disconnectListeners) {
-            listener();
+          if (!this.closedByUs) {
+            for (const listener of this.disconnectListeners) {
+              listener();
+            }
           }
         };
 
         this.ws.onmessage = (event) => {
+          if (this.closedByUs) return;
           try {
             const raw = JSON.parse(event.data);
             const parsed = ServerMessageSchema.safeParse(raw);
@@ -88,6 +95,7 @@ export class SignalingClient {
   }
 
   public close(): void {
+    this.closedByUs = true;
     if (this.ws) {
       if (this.ws.readyState === WebSocket.OPEN) {
         this.send({ type: 'close' });

@@ -1,4 +1,23 @@
+import { z } from 'zod';
 import type { SignalingClient } from './signaling';
+
+// ─── Zod Schemas for SDP and ICE Payloads (Item 4 & 6) ────────────────────────
+
+export const SdpPayloadSchema = z.object({
+  type: z.enum(['offer', 'answer']),
+  sdp: z.string(),
+});
+
+export type SdpPayload = z.infer<typeof SdpPayloadSchema>;
+
+export const IcePayloadSchema = z.object({
+  candidate: z.string(),
+  sdpMid: z.string().nullable().optional(),
+  sdpMLineIndex: z.number().nullable().optional(),
+  usernameFragment: z.string().nullable().optional(),
+});
+
+export type IcePayload = z.infer<typeof IcePayloadSchema>;
 
 export interface PeerManagerOptions {
   signaling: SignalingClient;
@@ -30,12 +49,23 @@ function parseIceServers(): RTCIceServer[] {
 /**
  * Manages RTCPeerConnection and an ordered reliable RTCDataChannel for transfer.
  * Negotiates WebRTC signaling over the SignalingClient.
+ *
+ * Guarantees:
+ * 1. Sequential processing of signaling messages via a Promise chain.
+ * 2. Buffering of early ICE candidates until setRemoteDescription completes.
+ * 3. Strict Zod validation of incoming SDP and ICE payloads.
  */
 export class PeerManager {
   private pc: RTCPeerConnection;
   private channel: RTCDataChannel | null = null;
   private options: PeerManagerOptions;
   private unsubscribeSignaling: (() => void) | null = null;
+
+  // Sequential queue for incoming signaling messages
+  private messageQueue: Promise<void> = Promise.resolve();
+  // Buffer for ICE candidates that arrive before setRemoteDescription completes
+  private iceCandidateBuffer: RTCIceCandidateInit[] = [];
+  private remoteDescriptionSet = false;
 
   constructor(options: PeerManagerOptions) {
     this.options = options;
@@ -94,7 +124,9 @@ export class PeerManager {
 
     this.channel.onmessage = (event) => {
       if (typeof event.data === 'string') {
-        this.options.onMessage?.(event.data);
+        // Enforce max 4000 chars on receive
+        const trimmed = event.data.slice(0, 4000);
+        this.options.onMessage?.(trimmed);
       }
     };
 
@@ -104,31 +136,75 @@ export class PeerManager {
   }
 
   private setupSignaling(): void {
-    this.unsubscribeSignaling = this.options.signaling.onMessage(async (msg) => {
+    this.unsubscribeSignaling = this.options.signaling.onMessage((msg) => {
       if (msg.type !== 'signal') return;
 
-      try {
-        if (msg.kind === 'offer') {
-          await this.pc.setRemoteDescription(new RTCSessionDescription(msg.data as RTCSessionDescriptionInit));
-          const answer = await this.pc.createAnswer();
-          await this.pc.setLocalDescription(answer);
+      // Queue message processing strictly one-by-one
+      this.messageQueue = this.messageQueue
+        .then(() => this.processSignalMessage(msg.kind, msg.data))
+        .catch((err) => {
+          this.options.onError?.(err);
+        });
+    });
+  }
 
-          this.options.signaling.send({
-            type: 'signal',
-            kind: 'answer',
-            data: answer,
-          });
-        } else if (msg.kind === 'answer') {
-          await this.pc.setRemoteDescription(new RTCSessionDescription(msg.data as RTCSessionDescriptionInit));
-        } else if (msg.kind === 'ice') {
-          if (msg.data) {
-            await this.pc.addIceCandidate(new RTCIceCandidate(msg.data as RTCIceCandidateInit));
-          }
-        }
+  private async processSignalMessage(kind: 'offer' | 'answer' | 'ice', rawData: unknown): Promise<void> {
+    if (kind === 'offer') {
+      const parsedSdp = SdpPayloadSchema.safeParse(rawData);
+      if (!parsedSdp.success || parsedSdp.data.type !== 'offer') {
+        this.options.onError?.(new Error('Invalid SDP offer payload received'));
+        return;
+      }
+
+      await this.pc.setRemoteDescription(new RTCSessionDescription(parsedSdp.data as RTCSessionDescriptionInit));
+      this.remoteDescriptionSet = true;
+      await this.flushIceCandidateBuffer();
+
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+
+      this.options.signaling.send({
+        type: 'signal',
+        kind: 'answer',
+        data: answer,
+      });
+    } else if (kind === 'answer') {
+      const parsedSdp = SdpPayloadSchema.safeParse(rawData);
+      if (!parsedSdp.success || parsedSdp.data.type !== 'answer') {
+        this.options.onError?.(new Error('Invalid SDP answer payload received'));
+        return;
+      }
+
+      await this.pc.setRemoteDescription(new RTCSessionDescription(parsedSdp.data as RTCSessionDescriptionInit));
+      this.remoteDescriptionSet = true;
+      await this.flushIceCandidateBuffer();
+    } else if (kind === 'ice') {
+      if (!rawData) return;
+      const parsedIce = IcePayloadSchema.safeParse(rawData);
+      if (!parsedIce.success) {
+        this.options.onError?.(new Error('Invalid ICE candidate payload received'));
+        return;
+      }
+
+      const candidateInit = parsedIce.data as RTCIceCandidateInit;
+      if (!this.remoteDescriptionSet) {
+        this.iceCandidateBuffer.push(candidateInit);
+      } else {
+        await this.pc.addIceCandidate(new RTCIceCandidate(candidateInit));
+      }
+    }
+  }
+
+  private async flushIceCandidateBuffer(): Promise<void> {
+    const candidates = [...this.iceCandidateBuffer];
+    this.iceCandidateBuffer = [];
+    for (const candidate of candidates) {
+      try {
+        await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
         this.options.onError?.(err);
       }
-    });
+    }
   }
 
   /**
@@ -152,10 +228,12 @@ export class PeerManager {
 
   /**
    * Send plaintext string message over the RTCDataChannel.
+   * Capped at 4000 characters.
    */
   public send(message: string): void {
     if (this.channel && this.channel.readyState === 'open') {
-      this.channel.send(message);
+      const payload = message.slice(0, 4000);
+      this.channel.send(payload);
     } else {
       throw new Error('DataChannel is not open');
     }

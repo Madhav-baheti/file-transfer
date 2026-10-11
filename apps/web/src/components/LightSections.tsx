@@ -38,17 +38,18 @@ export const LightSections: React.FC = () => {
         </div>
       </section>
 
-      {/* ─── Why It's Private ────────────────────────────────────────── */}
-      <section id="why-private" className={styles.section} aria-labelledby="why-private-heading">
-        <h2 id="why-private-heading" className={styles.sectionHeading}>
-          Why it&apos;s private
+      {/* ─── About Transfers ─────────────────────────────────────────── */}
+      <section id="about-transfers" className={styles.section} aria-labelledby="about-transfers-heading">
+        <h2 id="about-transfers-heading" className={styles.sectionHeading}>
+          About transfers
         </h2>
 
         <div className={styles.cardsGrid}>
           <div className={styles.card}>
-            <h3 className={styles.cardTitle}>End-to-End Direct</h3>
+            <h3 className={styles.cardTitle}>Direct Connection</h3>
             <p className={styles.cardText}>
-              Once signaling exchanges ICE credentials, the connection runs over an encrypted RTCDataChannel directly between devices.
+              {/* TODO: Restore encryption details after Phase 5. */}
+              After signaling exchanges connection details, files are sent directly between the two devices.
             </p>
           </div>
 

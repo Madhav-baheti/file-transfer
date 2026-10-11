@@ -158,6 +158,14 @@ export function App() {
               return;
             }
 
+            case 'file-ack': {
+              const sender = senderRef.current;
+              if (sender && sender.getOffer().id === msg.id && sender.handleAck(msg.bytes)) {
+                transferConfirmationTimerRef.current?.start();
+              }
+              return;
+            }
+
             case 'file-decline': {
               senderRef.current?.cancel(msg.reason || 'Receiver declined transfer');
               senderRef.current = null;
@@ -174,10 +182,13 @@ export function App() {
             }
 
             case 'file-result': {
-              if (transferStatusRef.current !== 'awaiting_confirmation') {
-                return;
-              }
-              if (!transferState.offer || msg.id !== transferState.offer.id) {
+              const transferStatus = transferStatusRef.current;
+              const sender = senderRef.current;
+              if (
+                !sender ||
+                (transferStatus !== 'transferring' && transferStatus !== 'awaiting_confirmation') ||
+                sender.getOffer().id !== msg.id
+              ) {
                 return;
               }
 
@@ -413,7 +424,13 @@ export function App() {
       onCompleted: () => {
         transferConfirmationTimerRef.current?.clear();
         transferActions.awaitConfirmation();
-        transferConfirmationTimerRef.current?.start();
+        if (
+          senderRef.current === sender &&
+          transferStatusRef.current !== 'completed' &&
+          transferStatusRef.current !== 'failed'
+        ) {
+          transferConfirmationTimerRef.current?.start();
+        }
       },
     });
 
@@ -464,6 +481,19 @@ export function App() {
       writableStream,
       onProgress: (p) => {
         transferActions.updateProgress(p);
+      },
+      onAck: (bytes) => {
+        try {
+          peerRef.current?.sendData(
+            PlaintextTransportCodec.encodeControl({
+              type: 'file-ack',
+              id: offer.id,
+              bytes,
+            }),
+          );
+        } catch {
+          // The data channel may close while acknowledging a chunk.
+        }
       },
       onError: (err) => {
         try {
@@ -585,7 +615,8 @@ export function App() {
           <header className={styles.heroHeader}>
             <h1 className={styles.headline}>Send big files, skip the cloud.</h1>
             <p className={styles.subtext}>
-              Direct from your device to theirs. Encrypted, no accounts, no uploads.
+              {/* TODO: Restore encryption wording after Phase 5. */}
+              Direct from your device to theirs. No accounts, no uploads.
             </p>
           </header>
 

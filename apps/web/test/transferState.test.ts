@@ -127,6 +127,62 @@ describe('transferReducer Guards', () => {
     expect(awaiting.status).toBe('awaiting_confirmation');
   });
 
+  it('begins verification only for a receiving transfer in progress', () => {
+    const receiverState: TransferState = {
+      ...initialTransferState,
+      status: 'transferring',
+      direction: 'receiver',
+      offer: mockOffer,
+    };
+    const senderState = { ...receiverState, direction: 'sender' as const };
+    const offeredState = { ...receiverState, status: 'offered' as const };
+
+    expect(transferReducer(receiverState, { type: 'BEGIN_VERIFYING' }).status).toBe('verifying');
+    expect(transferReducer(senderState, { type: 'BEGIN_VERIFYING' })).toBe(senderState);
+    expect(transferReducer(offeredState, { type: 'BEGIN_VERIFYING' })).toBe(offeredState);
+    expect(transferReducer(initialTransferState, { type: 'BEGIN_VERIFYING' })).toBe(initialTransferState);
+  });
+
+  it('allows a verifying receiver to complete, fail, or cancel', () => {
+    const verifyingState: TransferState = {
+      ...initialTransferState,
+      status: 'verifying',
+      direction: 'receiver',
+      offer: mockOffer,
+    };
+
+    expect(transferReducer(verifyingState, { type: 'COMPLETE_TRANSFER' }).status).toBe('completed');
+
+    const failed = transferReducer(verifyingState, {
+      type: 'FAIL_TRANSFER',
+      error: 'Hash verification failed',
+    });
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toBe('Hash verification failed');
+
+    expect(transferReducer(verifyingState, { type: 'CANCEL_TRANSFER' }).status).toBe('cancelled');
+  });
+
+  it('ignores verification and completion from unrelated states', () => {
+    const idleComplete = transferReducer(initialTransferState, { type: 'COMPLETE_TRANSFER' });
+    expect(idleComplete).toBe(initialTransferState);
+
+    const senderTransferring: TransferState = {
+      ...initialTransferState,
+      status: 'transferring',
+      direction: 'sender',
+      offer: mockOffer,
+    };
+    expect(transferReducer(senderTransferring, { type: 'BEGIN_VERIFYING' })).toBe(senderTransferring);
+    expect(transferReducer(senderTransferring, { type: 'COMPLETE_TRANSFER' })).toBe(senderTransferring);
+
+    const idleReceiver: TransferState = {
+      ...initialTransferState,
+      direction: 'receiver',
+    };
+    expect(transferReducer(idleReceiver, { type: 'BEGIN_VERIFYING' })).toBe(idleReceiver);
+  });
+
   it('handles FILE_RESULT success and ignores mismatched IDs', () => {
     const awaitingState: TransferState = {
       ...initialTransferState,

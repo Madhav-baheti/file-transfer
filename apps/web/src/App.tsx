@@ -19,6 +19,9 @@ import { PairingCards } from './components/PairingCards';
 import { LightSections } from './components/LightSections';
 import styles from './App.module.css';
 
+const SIGNALING_UNREACHABLE_MESSAGE =
+  'The pairing service is not reachable. Check your internet connection and try again.';
+
 export function App() {
   const { state, actions } = useSessionStateMachine();
   const {
@@ -164,6 +167,7 @@ export function App() {
 
             case 'file-end': {
               if (receiverRef.current) {
+                transferActions.beginVerifying();
                 await receiverRef.current.finish(msg);
               }
               return;
@@ -327,7 +331,7 @@ export function App() {
       sig.send({ type: 'create' });
     } catch {
       cleanupConnections();
-      actions.fail('Could not connect to signaling server. Is it running?');
+      actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
     }
   };
 
@@ -378,7 +382,7 @@ export function App() {
       sig.send({ type: 'join', code: inputCode });
     } catch {
       cleanupConnections();
-      actions.fail('Could not connect to signaling server. Is it running?');
+      actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
     }
   };
 
@@ -644,7 +648,8 @@ export function App() {
               />
             )}
 
-            {((state.status === 'failed' && state.role !== 'responder') ||
+            {((state.status === 'failed' &&
+              (state.role !== 'responder' || state.error === SIGNALING_UNREACHABLE_MESSAGE)) ||
               state.status === 'closed') && (
               <div className={styles.statusCardOuter}>
                 <div className={styles.statusCardInner}>
@@ -659,13 +664,27 @@ export function App() {
                   <p className={styles.statusText}>
                     {state.error || 'The session was closed.'}
                   </p>
-                  <button
-                    className={styles.actionButton}
-                    onClick={handleReset}
-                    type="button"
-                  >
-                    Return Home
-                  </button>
+                  {state.status === 'failed' && state.error === SIGNALING_UNREACHABLE_MESSAGE ? (
+                    <button
+                      className={styles.actionButton}
+                      onClick={
+                        state.role === 'initiator'
+                          ? handleStartCreate
+                          : () => handleStartJoin(state.code ?? '')
+                      }
+                      type="button"
+                    >
+                      Try again
+                    </button>
+                  ) : (
+                    <button
+                      className={styles.actionButton}
+                      onClick={handleReset}
+                      type="button"
+                    >
+                      Return Home
+                    </button>
+                  )}
                 </div>
               </div>
             )}

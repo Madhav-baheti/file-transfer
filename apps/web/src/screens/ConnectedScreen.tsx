@@ -86,6 +86,17 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
           />
         )}
 
+        {transferState.status === 'verifying' && transferState.offer && (
+          <TransferProgress
+            filename={transferState.offer.name}
+            totalBytes={transferState.offer.size}
+            direction="receiver"
+            progress={transferState.progress}
+            status="verifying"
+            onCancel={onCancelTransfer}
+          />
+        )}
+
         {transferState.status === 'awaiting_confirmation' && transferState.offer && (
           <TransferProgress
             filename={transferState.offer.name}

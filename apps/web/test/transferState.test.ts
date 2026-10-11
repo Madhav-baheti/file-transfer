@@ -226,6 +226,61 @@ describe('transferReducer Guards', () => {
     expect(failed.error).toBe('Receiver rejected the file');
   });
 
+  it('handles FILE_RESULT from a sender while transferring', () => {
+    const transferringSender: TransferState = {
+      ...initialTransferState,
+      status: 'transferring',
+      direction: 'sender',
+      offer: mockOffer,
+    };
+
+    const completed = transferReducer(transferringSender, {
+      type: 'FILE_RESULT',
+      id: mockOffer.id,
+      ok: true,
+    });
+    expect(completed.status).toBe('completed');
+
+    const failed = transferReducer(transferringSender, {
+      type: 'FILE_RESULT',
+      id: mockOffer.id,
+      ok: false,
+      error: 'Receiver reported a write failure',
+    });
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toBe('Receiver reported a write failure');
+
+    const receiver: TransferState = { ...transferringSender, direction: 'receiver' };
+    expect(
+      transferReducer(receiver, {
+        type: 'FILE_RESULT',
+        id: mockOffer.id,
+        ok: true,
+      }),
+    ).toBe(receiver);
+
+    expect(
+      transferReducer(transferringSender, {
+        type: 'FILE_RESULT',
+        id: 'different-file-id',
+        ok: true,
+      }),
+    ).toBe(transferringSender);
+  });
+
+  it('ignores AWAIT_CONFIRMATION after sender completion', () => {
+    const completedSender: TransferState = {
+      ...initialTransferState,
+      status: 'completed',
+      direction: 'sender',
+      offer: mockOffer,
+    };
+
+    expect(
+      transferReducer(completedSender, { type: 'AWAIT_CONFIRMATION' }),
+    ).toBe(completedSender);
+  });
+
   it('guard: CANCEL_TRANSFER only valid from offered or transferring', () => {
     const fromIdle = transferReducer(initialTransferState, { type: 'CANCEL_TRANSFER' });
     expect(fromIdle.status).toBe('idle');

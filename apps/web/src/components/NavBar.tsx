@@ -21,8 +21,8 @@ export const NavBar: React.FC<NavBarProps> = ({ onStartSession }) => {
           <a href="#how-it-works" className={styles.navLink}>
             How it works
           </a>
-          <a href="#why-private" className={styles.navLink}>
-            Why it&apos;s private
+          <a href="#about-transfers" className={styles.navLink}>
+            About transfers
           </a>
           <a href="#features" className={styles.navLink}>
             Features

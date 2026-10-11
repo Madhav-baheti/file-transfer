@@ -134,7 +134,11 @@ export function transferReducer(state: TransferState, action: TransferAction): T
     }
 
     case 'FILE_RESULT': {
-      if (state.status !== 'awaiting_confirmation' || state.offer?.id !== action.id) {
+      if (
+        state.direction !== 'sender' ||
+        (state.status !== 'transferring' && state.status !== 'awaiting_confirmation') ||
+        state.offer?.id !== action.id
+      ) {
         return state;
       }
 

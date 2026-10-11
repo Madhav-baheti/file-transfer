@@ -155,7 +155,7 @@
 
 .outlinedActionButton:hover {
   border-color: var(--color-frame);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--overlay-light-08);
 }
 
 .outlinedActionButton:focus-visible {

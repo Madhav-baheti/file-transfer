@@ -131,6 +131,7 @@ describe('transferReducer Guards', () => {
     const completedState: TransferState = {
       ...initialTransferState,
       status: 'completed',
+      error: 'Old error',
     };
 
     const next = transferReducer(completedState, {
@@ -138,6 +139,44 @@ describe('transferReducer Guards', () => {
       error: 'Late error',
     });
     expect(next.status).toBe('completed');
-    expect(next.error).toBeNull();
+    expect(next.error).toBe('Old error');
+  });
+
+  it('clears stale transfer metadata on completion and cancellation', () => {
+    const failedState: TransferState = {
+      ...initialTransferState,
+      status: 'transferring',
+      direction: 'receiver',
+      offer: mockOffer,
+      progress: {
+        fileId: mockOffer.id,
+        filename: mockOffer.name,
+        totalBytes: mockOffer.size,
+        transferredBytes: 50,
+        percentage: 50,
+        speedBytesPerSec: 10,
+        etaSeconds: 1,
+      },
+      error: 'Temporary failure',
+    };
+
+    const completed = transferReducer(failedState, { type: 'COMPLETE_TRANSFER' });
+    expect(completed.status).toBe('completed');
+    expect(completed.error).toBeNull();
+    expect(completed.progress).toBeNull();
+
+    const cancelled = transferReducer(
+      {
+        ...completed,
+        status: 'offered',
+        direction: 'receiver',
+        offer: mockOffer,
+      },
+      { type: 'CANCEL_TRANSFER' },
+    );
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.error).toBeNull();
+    expect(cancelled.progress).toBeNull();
+    expect(cancelled.completedBlob).toBeNull();
   });
 });

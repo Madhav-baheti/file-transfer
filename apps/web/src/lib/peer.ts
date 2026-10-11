@@ -1,3 +1,4 @@
+import { exactBuffer } from './transfer';
 import { z } from 'zod';
 import type { SignalingClient } from './signaling';
 
@@ -281,23 +282,22 @@ export class PeerManager {
   /**
    * Send arbitrary data (string or binary) without message length restrictions (used for control & chunks).
    */
-  public sendData(data: string | ArrayBuffer | Uint8Array): void {
+    public sendData(data: string | ArrayBuffer | ArrayBufferView): void {
     if (this.closed) {
       throw new Error('PeerManager is closed');
     }
-    if (this.channel && this.channel.readyState === 'open') {
-      if (typeof data === 'string') {
-        this.channel.send(data);
-      } else if (data instanceof Uint8Array) {
-        this.channel.send(data.buffer as ArrayBuffer);
-      } else {
-        this.channel.send(data);
-      }
-    } else {
+    if (!this.channel || this.channel.readyState !== 'open') {
       throw new Error('DataChannel is not open');
     }
+    if (typeof data === 'string') {
+      this.channel.send(data);
+    } else if (ArrayBuffer.isView(data)) {
+      // Send exactly the view's bytes, never the whole backing buffer
+      this.channel.send(exactBuffer(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)));
+    } else {
+      this.channel.send(data);
+    }
   }
-
   public close(): void {
     if (this.closed) return;
     this.closed = true;

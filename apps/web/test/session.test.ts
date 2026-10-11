@@ -148,15 +148,19 @@ describe('sessionReducer', () => {
     expect(next.error).toBe('Signaling server unreachable');
   });
 
-  it('handles CLOSE and transitions to closed state', () => {
+  it('handles CLOSE and transitions to closed state without stale data', () => {
     const connectedState: SessionState = {
       ...initialSessionState,
       status: 'connected',
       role: 'initiator',
+      code: '7-kiwi-lamp',
+      error: 'some error',
     };
 
     const next = sessionReducer(connectedState, { type: 'CLOSE' });
     expect(next.status).toBe('closed');
+    expect(next.code).toBeNull();
+    expect(next.error).toBeNull();
   });
 
   it('handles RESET and returns to initial state', () => {

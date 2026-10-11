@@ -398,8 +398,7 @@ export function App() {
     // Chromium File System Access API check (user gesture is this button click)
     if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
       try {
-        // @ts-expect-error showSaveFilePicker browser API
-        const fileHandle = await window.showSaveFilePicker({
+        const fileHandle = await window.showSaveFilePicker!({
           suggestedName: offer.name,
         });
         const writable = await fileHandle.createWritable();

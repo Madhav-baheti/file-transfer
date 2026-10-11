@@ -12,18 +12,42 @@ import {
   type FileEndMsg,
 } from './protocol';
 
+// ─── Limits ───────────────────────────────────────────────────────────────────
+
+/** Browsers without the File System Access API must hold the whole file in RAM. */
+export const MAX_IN_MEMORY_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
+export const MAX_OFFER_NAME_LENGTH = 1024;
+export const MAX_OFFER_MIME_LENGTH = 255;
+
+// ─── Filename sanitizing ──────────────────────────────────────────────────────
+
+// Invisible and direction-override characters that can disguise a file extension
+// (for example "invoice<RLO>fdp.exe" displays as "invoiceexe.pdf").
+const INVISIBLE_CHARS = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+// Path separators, characters Windows forbids, and control characters.
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_CHARS = /[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/g;
+// Windows reserved device names, with or without an extension.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
 /**
- * Sanitizes untrusted filenames from peer:
- * - Strips path separators (\ and /) and control characters
- * - Trims whitespace and caps length at 255 characters
- * - Never auto-opens files
+ * Sanitizes untrusted filenames from the peer:
+ * - Removes invisible/direction-override characters
+ * - Replaces path separators and control characters
+ * - Strips trailing dots and spaces (Windows ignores them)
+ * - Prefixes Windows reserved device names with "_"
+ * - Caps length at 255 characters, keeping a short extension
+ * Never auto-opens files.
  */
 export function sanitizeFilename(raw: string): string {
-  // Replace slashes, colons, null bytes and other control chars
-  // eslint-disable-next-line no-control-regex
-  let cleaned = raw.replace(/[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_').trim();
-  if (!cleaned) {
+  let cleaned = raw.replace(INVISIBLE_CHARS, '').replace(FORBIDDEN_CHARS, '_').trim();
+  cleaned = cleaned.replace(/[. ]+$/, '');
+
+  if (!cleaned || /^\.+$/.test(cleaned)) {
     cleaned = 'download';
+  }
+  if (WINDOWS_RESERVED.test(cleaned)) {
+    cleaned = '_' + cleaned;
   }
   if (cleaned.length > 255) {
     const extIdx = cleaned.lastIndexOf('.');
@@ -35,6 +59,38 @@ export function sanitizeFilename(raw: string): string {
     }
   }
   return cleaned;
+}
+
+/**
+ * Validates a file offer received from the peer. Returns an error message,
+ * or null when the offer is acceptable.
+ */
+export function validateFileOffer(offer: FileOfferMsg): string | null {
+  if (typeof offer.id !== 'string' || offer.id.length === 0 || offer.id.length > 100) {
+    return 'Invalid file offer: bad id';
+  }
+  if (typeof offer.size !== 'number' || !Number.isSafeInteger(offer.size) || offer.size < 0) {
+    return 'Invalid file offer: bad size';
+  }
+  if (typeof offer.name !== 'string' || offer.name.length > MAX_OFFER_NAME_LENGTH) {
+    return 'Invalid file offer: bad name';
+  }
+  if (typeof offer.mime !== 'string' || offer.mime.length > MAX_OFFER_MIME_LENGTH) {
+    return 'Invalid file offer: bad type';
+  }
+  return null;
+}
+
+/**
+ * Returns an ArrayBuffer holding exactly the bytes of the view.
+ * `view.buffer` alone can contain extra bytes when the view is a window into a
+ * larger buffer, so it must never be sent directly.
+ */
+export function exactBuffer(view: Uint8Array): ArrayBuffer {
+  if (view.byteOffset === 0 && view.byteLength === view.buffer.byteLength) {
+    return view.buffer as ArrayBuffer;
+  }
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
 }
 
 export interface TransferProgress {
@@ -93,21 +149,26 @@ export class FileSender {
     };
   }
 
+  private sendControl(encoded: string | Uint8Array): void {
+    if (typeof encoded === 'string') {
+      this.channel.send(encoded);
+    } else {
+      this.channel.send(exactBuffer(encoded));
+    }
+  }
+
   public cancel(reason = 'Sender cancelled'): void {
     if (this.cancelled) return;
     this.cancelled = true;
     try {
       if (this.channel.readyState === 'open') {
-        const cancelMsg = this.codec.encodeControl({
-          type: 'file-cancel',
-          id: this.fileId,
-          reason,
-        });
-        if (typeof cancelMsg === 'string') {
-          this.channel.send(cancelMsg);
-        } else {
-          this.channel.send(cancelMsg.buffer as ArrayBuffer);
-        }
+        this.sendControl(
+          this.codec.encodeControl({
+            type: 'file-cancel',
+            id: this.fileId,
+            reason,
+          }),
+        );
       }
     } catch {
       // ignore send error on cancel
@@ -170,7 +231,7 @@ export class FileSender {
             throw new Error('DataChannel closed during transfer');
           }
 
-          this.channel.send(processedChunk.buffer as ArrayBuffer);
+          this.channel.send(exactBuffer(processedChunk));
 
           transferredBytes += chunkPayload.byteLength;
           chunkIndex++;
@@ -215,12 +276,7 @@ export class FileSender {
         totalBytes: transferredBytes,
       };
 
-      const encodedEnd = this.codec.encodeControl(endMsg);
-      if (typeof encodedEnd === 'string') {
-        this.channel.send(encodedEnd);
-      } else {
-        this.channel.send(encodedEnd.buffer as ArrayBuffer);
-      }
+      this.sendControl(this.codec.encodeControl(endMsg));
 
       this.onCompleted?.();
     } catch (err) {
@@ -272,6 +328,9 @@ export interface ReceiverTransferOptions {
  * Handles receiving a file with incremental SHA-256 verification, ordering checks,
  * and chunk count verification.
  * Supports direct FileSystemWritableFileStream writing (Chromium) or Blob accumulation.
+ *
+ * Safety: the receiver never accepts more bytes than the offered size, and refuses to
+ * hold more than MAX_IN_MEMORY_BYTES in RAM when it cannot stream to disk.
  */
 export class FileReceiver {
   public readonly offer: FileOfferMsg;
@@ -287,6 +346,7 @@ export class FileReceiver {
   private chunks: Uint8Array[] = []; // In-memory fallback if not streaming to disk
   private completed = false;
   private cancelled = false;
+  private invalidReason: string | null;
 
   private startTime = Date.now();
   private lastProgressTime = this.startTime;
@@ -299,12 +359,17 @@ export class FileReceiver {
     this.onProgress = options.onProgress;
     this.onCompleted = options.onCompleted;
     this.onError = options.onError;
+    this.invalidReason = validateFileOffer(options.offer);
   }
 
   public async receiveChunk(rawBytes: ArrayBuffer | Uint8Array): Promise<void> {
     if (this.completed || this.cancelled) return;
 
     try {
+      if (this.invalidReason) {
+        throw new Error(this.invalidReason);
+      }
+
       const decodedRaw = this.codec.decodeBinary(rawBytes);
       const { fileId, index, data } = decodeChunk(decodedRaw);
 
@@ -315,6 +380,20 @@ export class FileReceiver {
       // Ordering check per requirement
       if (index !== this.expectedIndex) {
         throw new Error(`Out-of-order chunk received: expected chunk ${this.expectedIndex}, got ${index}`);
+      }
+
+      // Never accept more data than the peer offered
+      if (this.receivedBytes + data.byteLength > this.offer.size) {
+        throw new Error(
+          `Peer sent more data than the offered file size (${this.offer.size} bytes)`,
+        );
+      }
+
+      // Without a disk writer the whole file is held in memory: refuse very large files
+      if (!this.writer && this.receivedBytes + data.byteLength > MAX_IN_MEMORY_BYTES) {
+        throw new Error(
+          'This file is too large to receive in this browser. Use Chrome or Edge, which can save large files directly to disk.',
+        );
       }
 
       this.expectedIndex++;
@@ -357,6 +436,10 @@ export class FileReceiver {
     if (this.completed || this.cancelled) return;
 
     try {
+      if (this.invalidReason) {
+        throw new Error(this.invalidReason);
+      }
+
       // 1. Verify file ID
       if (normalizeFileId(endMsg.id) !== normalizeFileId(this.offer.id)) {
         throw new Error(`FileEnd message ID mismatch`);

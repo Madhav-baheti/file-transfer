@@ -110,7 +110,7 @@
 
 .codeInput {
   width: 100%;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--overlay-light-12);
   border: 1px solid var(--color-border-on-hero);
   border-radius: var(--radius-button);
   padding: var(--space-3) var(--space-4);
@@ -130,7 +130,7 @@
 .codeInput:focus {
   outline: none;
   border-color: var(--color-frame);
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--overlay-light-20);
 }
 
 .joinButton {

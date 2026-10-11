@@ -4,12 +4,20 @@ import { z } from 'zod';
 
 export const FileOfferMsgSchema = z.object({
   type: z.literal('file-offer'),
-  id: z.string(),
-  name: z.string(),
-  size: z.number().int().nonnegative(),
-  mime: z.string(),
+  id: z.string().min(1),
+  name: z.string().max(1024),
+  size: z
+    .number()
+    .int()
+    .nonnegative()
+    .refine(Number.isFinite, { message: 'size must be a finite integer' }),
+  mime: z.string().max(255),
 });
 export type FileOfferMsg = z.infer<typeof FileOfferMsgSchema>;
+
+export function isValidFileOffer(data: unknown): data is FileOfferMsg {
+  return FileOfferMsgSchema.safeParse(data).success;
+}
 
 export const FileAcceptMsgSchema = z.object({
   type: z.literal('file-accept'),
@@ -40,6 +48,14 @@ export const FileCancelMsgSchema = z.object({
 });
 export type FileCancelMsg = z.infer<typeof FileCancelMsgSchema>;
 
+export const FileResultMsgSchema = z.object({
+  type: z.literal('file-result'),
+  id: z.string(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+export type FileResultMsg = z.infer<typeof FileResultMsgSchema>;
+
 export const TextMsgSchema = z.object({
   type: z.literal('text'),
   body: z.string(),
@@ -52,6 +68,7 @@ export const ControlMessageSchema = z.discriminatedUnion('type', [
   FileDeclineMsgSchema,
   FileEndMsgSchema,
   FileCancelMsgSchema,
+  FileResultMsgSchema,
   TextMsgSchema,
 ]);
 export type ControlMessage = z.infer<typeof ControlMessageSchema>;

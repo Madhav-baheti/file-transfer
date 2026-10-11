@@ -6,6 +6,7 @@ export type TransferStateKind =
   | 'idle'
   | 'offered'
   | 'transferring'
+  | 'awaiting_confirmation'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -24,6 +25,7 @@ export type TransferAction =
   | { type: 'START_SENDING'; offer: FileOfferMsg }
   | { type: 'ACCEPT_TRANSFER' }
   | { type: 'UPDATE_PROGRESS'; progress: TransferProgress }
+  | { type: 'AWAIT_CONFIRMATION' }
   | { type: 'COMPLETE_TRANSFER'; blob?: Blob }
   | { type: 'FAIL_TRANSFER'; error: string }
   | { type: 'CANCEL_TRANSFER' }
@@ -42,8 +44,10 @@ export const initialTransferState: TransferState = {
  * Pure reducer for file transfer state machine with transition guards:
  * - Only 1 transfer at a time: OFFER_INCOMING and START_SENDING are rejected if not idle
  * - ACCEPT_TRANSFER is only valid from 'offered'
- * - UPDATE_PROGRESS and COMPLETE_TRANSFER are only valid from 'transferring'
- * - CANCEL_TRANSFER is only valid from 'offered' or 'transferring'
+ * - UPDATE_PROGRESS is only valid from 'transferring'
+ * - AWAIT_CONFIRMATION is only valid from 'transferring' for sender
+ * - COMPLETE_TRANSFER is valid from 'awaiting_confirmation' (sender) or 'transferring' (receiver)
+ * - CANCEL_TRANSFER is valid from 'offered', 'transferring', or 'awaiting_confirmation'
  * - FAIL_TRANSFER is ignored if already completed or cancelled
  */
 export function transferReducer(state: TransferState, action: TransferAction): TransferState {
@@ -85,6 +89,8 @@ export function transferReducer(state: TransferState, action: TransferAction): T
       return {
         ...state,
         status: 'transferring',
+        error: null,
+        progress: null,
       };
     }
 
@@ -95,22 +101,40 @@ export function transferReducer(state: TransferState, action: TransferAction): T
       return {
         ...state,
         progress: action.progress,
+        error: null,
+      };
+    }
+
+    case 'AWAIT_CONFIRMATION': {
+      if (state.status !== 'transferring' || state.direction !== 'sender') {
+        return state;
+      }
+      return {
+        ...state,
+        status: 'awaiting_confirmation',
+        error: null,
       };
     }
 
     case 'COMPLETE_TRANSFER': {
-      if (state.status !== 'transferring') {
+      // Receiver completes from 'transferring'; Sender completes from 'awaiting_confirmation' (or directly if not waiting)
+      if (
+        state.status !== 'transferring' &&
+        state.status !== 'awaiting_confirmation'
+      ) {
         return state;
       }
       return {
         ...state,
         status: 'completed',
+        error: null,
+        progress: null,
         completedBlob: action.blob ?? null,
       };
     }
 
     case 'FAIL_TRANSFER': {
-      if (state.status === 'completed' || state.status === 'cancelled') {
+      if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'failed') {
         return state;
       }
       return {
@@ -121,12 +145,19 @@ export function transferReducer(state: TransferState, action: TransferAction): T
     }
 
     case 'CANCEL_TRANSFER': {
-      if (state.status !== 'offered' && state.status !== 'transferring') {
+      if (
+        state.status !== 'offered' &&
+        state.status !== 'transferring' &&
+        state.status !== 'awaiting_confirmation'
+      ) {
         return state;
       }
       return {
         ...state,
         status: 'cancelled',
+        error: null,
+        progress: null,
+        completedBlob: null,
       };
     }
 
@@ -148,6 +179,7 @@ export function useTransferStateMachine() {
       startSending: (offer: FileOfferMsg) => dispatch({ type: 'START_SENDING', offer }),
       acceptTransfer: () => dispatch({ type: 'ACCEPT_TRANSFER' }),
       updateProgress: (progress: TransferProgress) => dispatch({ type: 'UPDATE_PROGRESS', progress }),
+      awaitConfirmation: () => dispatch({ type: 'AWAIT_CONFIRMATION' }),
       completeTransfer: (blob?: Blob) => dispatch({ type: 'COMPLETE_TRANSFER', blob }),
       failTransfer: (error: string) => dispatch({ type: 'FAIL_TRANSFER', error }),
       cancelTransfer: () => dispatch({ type: 'CANCEL_TRANSFER' }),

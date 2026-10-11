@@ -56,6 +56,13 @@ export const FileResultMsgSchema = z.object({
 });
 export type FileResultMsg = z.infer<typeof FileResultMsgSchema>;
 
+export const FileAckMsgSchema = z.object({
+  type: z.literal('file-ack'),
+  id: z.string(),
+  bytes: z.number().int().nonnegative().safe(),
+});
+export type FileAckMsg = z.infer<typeof FileAckMsgSchema>;
+
 export const TextMsgSchema = z.object({
   type: z.literal('text'),
   body: z.string(),
@@ -69,6 +76,7 @@ export const ControlMessageSchema = z.discriminatedUnion('type', [
   FileEndMsgSchema,
   FileCancelMsgSchema,
   FileResultMsgSchema,
+  FileAckMsgSchema,
   TextMsgSchema,
 ]);
 export type ControlMessage = z.infer<typeof ControlMessageSchema>;

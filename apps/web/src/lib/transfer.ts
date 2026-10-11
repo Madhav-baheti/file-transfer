@@ -113,6 +113,9 @@ export interface SenderTransferOptions {
   onCompleted?: () => void;
 }
 
+const MAX_IN_FLIGHT_BYTES = 16 * 1024 * 1024;
+const ACK_WAIT_TIMEOUT_MS = 30000;
+
 /**
  * Handles sending a file using slice-based chunk streaming and backpressure.
  * Constant memory usage regardless of file size.
@@ -128,6 +131,11 @@ export class FileSender {
 
   private cancelled = false;
   private active = false;
+  private sentBytes = 0;
+  private ackedBytes = 0;
+  private ackWaiters = new Set<() => void>();
+  private lastProgressTime = Date.now();
+  private lastProgressBytes = 0;
 
   constructor(options: SenderTransferOptions) {
     this.file = options.file;
@@ -160,6 +168,7 @@ export class FileSender {
   public cancel(reason = 'Sender cancelled'): void {
     if (this.cancelled) return;
     this.cancelled = true;
+    this.releaseAckWaiters();
     try {
       if (this.channel.readyState === 'open') {
         this.sendControl(
@@ -175,20 +184,33 @@ export class FileSender {
     }
   }
 
+  public handleAck(bytes: number): boolean {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < this.ackedBytes ||
+      bytes > this.sentBytes
+    ) {
+      return false;
+    }
+
+    this.ackedBytes = bytes;
+    this.reportProgress(true);
+    this.releaseAckWaiters();
+    return true;
+  }
+
   public async start(): Promise<void> {
     if (this.active || this.cancelled) return;
     this.active = true;
+    this.lastProgressTime = Date.now();
+    this.lastProgressBytes = 0;
 
     // Set backpressure threshold: 1 MB per TECH_STACK.md Section 6
     this.channel.bufferedAmountLowThreshold = 1024 * 1024; // 1 MB
     const HIGH_WATER_MARK = 2 * 1024 * 1024; // 2 MB
 
     const hasher = sha256.create();
-    let transferredBytes = 0;
     let chunkIndex = 0;
-    const startTime = Date.now();
-    let lastProgressTime = startTime;
-    let lastProgressBytes = 0;
 
     const SLICE_SIZE = 256 * 1024; // Read in 256 KB slices from File.slice()
 
@@ -222,6 +244,8 @@ export class FileSender {
           const wireChunk = encodeChunk(this.fileId, chunkIndex, chunkPayload);
           const processedChunk = this.codec.encodeBinary(wireChunk);
 
+          await this.waitForAckWindow(chunkPayload.byteLength);
+
           // Backpressure check
           if (this.channel.bufferedAmount > HIGH_WATER_MARK) {
             await this.waitForDrain();
@@ -233,32 +257,9 @@ export class FileSender {
 
           this.channel.send(exactBuffer(processedChunk));
 
-          transferredBytes += chunkPayload.byteLength;
+          this.sentBytes += chunkPayload.byteLength;
           chunkIndex++;
           sliceOffset = chunkEnd;
-
-          // Emit progress throttling (at most once every 100ms or on completion)
-          const now = Date.now();
-          if (now - lastProgressTime >= 100 || transferredBytes === this.file.size) {
-            const timeDiff = (now - lastProgressTime) / 1000;
-            const bytesDiff = transferredBytes - lastProgressBytes;
-            const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
-            const remaining = this.file.size - transferredBytes;
-            const eta = speed > 0 ? Math.ceil(remaining / speed) : 0;
-
-            this.onProgress?.({
-              fileId: this.fileId,
-              filename: this.file.name,
-              totalBytes: this.file.size,
-              transferredBytes,
-              percentage: Math.min(100, Math.round((transferredBytes / this.file.size) * 100)),
-              speedBytesPerSec: speed,
-              etaSeconds: eta,
-            });
-
-            lastProgressTime = now;
-            lastProgressBytes = transferredBytes;
-          }
         }
 
         offset = sliceEnd;
@@ -273,7 +274,7 @@ export class FileSender {
         id: this.fileId,
         sha256: finalDigest,
         chunkCount: chunkIndex,
-        totalBytes: transferredBytes,
+        totalBytes: this.sentBytes,
       };
 
       this.sendControl(this.codec.encodeControl(endMsg));
@@ -285,6 +286,80 @@ export class FileSender {
       }
     } finally {
       this.active = false;
+    }
+  }
+
+  private reportProgress(force = false): void {
+    const now = Date.now();
+    if (!force && now - this.lastProgressTime < 100 && this.ackedBytes !== this.file.size) {
+      return;
+    }
+
+    const timeDiff = (now - this.lastProgressTime) / 1000;
+    const bytesDiff = this.ackedBytes - this.lastProgressBytes;
+    const speed = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+    const remaining = this.file.size - this.ackedBytes;
+
+    this.onProgress?.({
+      fileId: this.fileId,
+      filename: this.file.name,
+      totalBytes: this.file.size,
+      transferredBytes: this.ackedBytes,
+      percentage:
+        this.file.size > 0
+          ? Math.min(100, Math.round((this.ackedBytes / this.file.size) * 100))
+          : 100,
+      speedBytesPerSec: speed,
+      etaSeconds: speed > 0 ? Math.ceil(remaining / speed) : 0,
+    });
+
+    this.lastProgressTime = now;
+    this.lastProgressBytes = this.ackedBytes;
+  }
+
+  private async waitForAckWindow(nextChunkBytes: number): Promise<void> {
+    while (this.sentBytes + nextChunkBytes - this.ackedBytes > MAX_IN_FLIGHT_BYTES) {
+      if (this.cancelled) {
+        throw new Error('Transfer cancelled');
+      }
+      if (this.channel.readyState !== 'open') {
+        throw new Error('DataChannel closed during transfer');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timeoutId);
+          this.ackWaiters.delete(onAck);
+          this.channel.removeEventListener('close', onClose);
+        };
+
+        const onAck = () => {
+          cleanup();
+          resolve();
+        };
+        const onClose = () => {
+          cleanup();
+          reject(new Error('DataChannel closed during transfer'));
+        };
+
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          reject(new Error('The other device stopped responding'));
+        }, ACK_WAIT_TIMEOUT_MS);
+
+        this.ackWaiters.add(onAck);
+        this.channel.addEventListener('close', onClose);
+        if (this.cancelled || this.channel.readyState !== 'open') {
+          cleanup();
+          resolve();
+        }
+      });
+    }
+  }
+
+  private releaseAckWaiters(): void {
+    for (const wake of [...this.ackWaiters]) {
+      wake();
     }
   }
 
@@ -322,6 +397,7 @@ export interface ReceiverTransferOptions {
   onProgress?: (progress: TransferProgress) => void;
   onCompleted?: (blob?: Blob) => void;
   onError?: (err: Error) => void;
+  onAck?: (bytes: number) => void;
 }
 
 /**
@@ -339,10 +415,13 @@ export class FileReceiver {
   private onProgress?: (progress: TransferProgress) => void;
   private onCompleted?: (blob?: Blob) => void;
   private onError?: (err: Error) => void;
+  private onAck?: (bytes: number) => void;
 
   private hasher = sha256.create();
   private expectedIndex = 0;
   private receivedBytes = 0;
+  private writtenBytes = 0;
+  private lastAckBytes = 0;
   private chunks: Uint8Array[] = []; // In-memory fallback if not streaming to disk
   private completed = false;
   private cancelled = false;
@@ -359,6 +438,7 @@ export class FileReceiver {
     this.onProgress = options.onProgress;
     this.onCompleted = options.onCompleted;
     this.onError = options.onError;
+    this.onAck = options.onAck;
     this.invalidReason = validateFileOffer(options.offer);
   }
 
@@ -404,6 +484,15 @@ export class FileReceiver {
         await this.writer.write(data);
       } else {
         this.chunks.push(data);
+      }
+
+      this.writtenBytes += data.byteLength;
+      if (
+        this.writtenBytes - this.lastAckBytes >= 4 * 1024 * 1024 ||
+        this.writtenBytes === this.offer.size
+      ) {
+        this.lastAckBytes = this.writtenBytes;
+        this.onAck?.(this.writtenBytes);
       }
 
       const now = Date.now();

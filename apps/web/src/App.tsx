@@ -158,6 +158,14 @@ export function App() {
               return;
             }
 
+            case 'file-ack': {
+              const sender = senderRef.current;
+              if (sender && sender.getOffer().id === msg.id && sender.handleAck(msg.bytes)) {
+                transferConfirmationTimerRef.current?.start();
+              }
+              return;
+            }
+
             case 'file-decline': {
               senderRef.current?.cancel(msg.reason || 'Receiver declined transfer');
               senderRef.current = null;
@@ -464,6 +472,19 @@ export function App() {
       writableStream,
       onProgress: (p) => {
         transferActions.updateProgress(p);
+      },
+      onAck: (bytes) => {
+        try {
+          peerRef.current?.sendData(
+            PlaintextTransportCodec.encodeControl({
+              type: 'file-ack',
+              id: offer.id,
+              bytes,
+            }),
+          );
+        } catch {
+          // The data channel may close while acknowledging a chunk.
+        }
       },
       onError: (err) => {
         try {

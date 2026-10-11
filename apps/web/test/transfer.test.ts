@@ -5,6 +5,7 @@ import {
   sanitizeFilename,
 } from '../src/lib/transfer';
 import {
+  ControlMessageSchema,
   encodeChunk,
   decodeChunk,
   type FileEndMsg,
@@ -15,11 +16,20 @@ import { bytesToHex } from '@noble/hashes/utils';
 
 // ─── Mock RTCDataChannel for Sender ───────────────────────────────────────────
 
-function createMockDataChannel(initialBufferedAmount = 0) {
+type MockDataChannel = RTCDataChannel & {
+  emit: (event: string) => void;
+  close: () => void;
+  send: ReturnType<typeof vi.fn>;
+};
+
+function createMockDataChannel(initialBufferedAmount = 0): MockDataChannel {
   const listeners: Record<string, (() => void)[]> = {};
+  let readyState: RTCDataChannelState = 'open';
 
   return {
-    readyState: 'open',
+    get readyState() {
+      return readyState;
+    },
     bufferedAmount: initialBufferedAmount,
     bufferedAmountLowThreshold: 0,
     send: vi.fn(),
@@ -39,8 +49,29 @@ function createMockDataChannel(initialBufferedAmount = 0) {
         }
       }
     },
-  } as unknown as RTCDataChannel & { emit: (event: string) => void };
+    close: () => {
+      readyState = 'closed';
+      if (listeners.close) {
+        for (const cb of [...listeners.close]) {
+          cb();
+        }
+      }
+    },
+  } as unknown as MockDataChannel;
 }
+
+describe('File acknowledgement control message', () => {
+  it('accepts valid acknowledgements and rejects invalid byte counts', () => {
+    expect(
+      ControlMessageSchema.safeParse({ type: 'file-ack', id: 'file-1', bytes: 4 * 1024 * 1024 })
+        .success,
+    ).toBe(true);
+    expect(ControlMessageSchema.safeParse({ type: 'file-ack', id: 'file-1', bytes: -1 }).success)
+      .toBe(false);
+    expect(ControlMessageSchema.safeParse({ type: 'file-ack', id: 'file-1', bytes: 1.5 }).success)
+      .toBe(false);
+  });
+});
 
 describe('Filename Sanitization', () => {
   it('strips path separators, colons, and control characters', () => {
@@ -142,6 +173,97 @@ describe('FileSender Chunker & Backpressure', () => {
     await transferPromise;
     expect(completed).toBe(true);
   });
+
+  it('limits in-flight data to 16 MiB and resumes when an acknowledgement opens the window', async () => {
+    const totalBytes = 16 * 1024 * 1024 + 16 * 1024;
+    const file = new File([new Uint8Array(totalBytes)], 'window.bin');
+    const channel = createMockDataChannel();
+    const onProgress = vi.fn();
+    const sender = new FileSender({ file, dataChannel: channel, onProgress });
+    const transferPromise = sender.start();
+    const binarySendCount = () =>
+      channel.send.mock.calls.filter(([data]) => data instanceof ArrayBuffer).length;
+
+    await vi.waitFor(() => {
+      expect(binarySendCount()).toBe(1024);
+    });
+    expect(binarySendCount()).toBe(1024);
+
+    expect(sender.handleAck(totalBytes + 1)).toBe(false);
+    expect(sender.handleAck(-1)).toBe(false);
+    expect(sender.handleAck(16 * 1024)).toBe(true);
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transferredBytes: 16 * 1024 }),
+    );
+    expect(sender.handleAck(0)).toBe(false);
+
+    await transferPromise;
+    expect(binarySendCount()).toBe(1025);
+
+    expect(sender.handleAck(totalBytes)).toBe(true);
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transferredBytes: totalBytes, percentage: 100 }),
+    );
+  });
+
+  it('releases the acknowledgement wait when cancelled', async () => {
+    const file = new File([new Uint8Array(16 * 1024 * 1024 + 16 * 1024)], 'cancel.bin');
+    const channel = createMockDataChannel();
+    const onError = vi.fn();
+    const sender = new FileSender({ file, dataChannel: channel, onError });
+    const transferPromise = sender.start();
+
+    await vi.waitFor(() => {
+      expect(channel.send.mock.calls.filter(([data]) => data instanceof ArrayBuffer)).toHaveLength(1024);
+    });
+    sender.cancel();
+    await transferPromise;
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(channel.removeEventListener).toHaveBeenCalledWith('close', expect.any(Function));
+  });
+
+  it('releases the acknowledgement wait when the channel closes', async () => {
+    const file = new File([new Uint8Array(16 * 1024 * 1024 + 16 * 1024)], 'closed.bin');
+    const channel = createMockDataChannel();
+    const onError = vi.fn();
+    const sender = new FileSender({ file, dataChannel: channel, onError });
+    const transferPromise = sender.start();
+
+    await vi.waitFor(() => {
+      expect(channel.send.mock.calls.filter(([data]) => data instanceof ArrayBuffer)).toHaveLength(1024);
+    });
+    channel.close();
+    await transferPromise;
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'DataChannel closed during transfer',
+    }));
+  });
+
+  it('fails when an acknowledgement window stays blocked for 30 seconds', async () => {
+    const file = new File([new Uint8Array(16 * 1024 * 1024 + 16 * 1024)], 'timeout.bin');
+    const channel = createMockDataChannel();
+    const onError = vi.fn();
+    const sender = new FileSender({ file, dataChannel: channel, onError });
+    vi.useFakeTimers();
+    try {
+      const transferPromise = sender.start();
+      await vi.waitFor(() => {
+        expect(
+          channel.send.mock.calls.filter(([data]) => data instanceof ArrayBuffer),
+        ).toHaveLength(1024);
+      });
+      await vi.advanceTimersByTimeAsync(30000);
+      await transferPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'The other device stopped responding' }),
+    );
+  });
 });
 
 describe('FileReceiver Integrity, Ordering, and Reassembly', () => {
@@ -156,6 +278,33 @@ describe('FileReceiver Integrity, Ordering, and Reassembly', () => {
     size: 10,
     mime: 'application/octet-stream',
   };
+
+  function createDelayedWriter(delayMs: number) {
+    const pendingWrites: Promise<void>[] = [];
+    let writtenBytes = 0;
+
+    const writer = {
+      write: vi.fn((data: Uint8Array) => {
+        const writePromise = new Promise<void>((resolve) => {
+          setTimeout(() => {
+            writtenBytes += data.byteLength;
+            resolve();
+          }, delayMs);
+        });
+        pendingWrites.push(writePromise);
+        return writePromise;
+      }),
+      close: vi.fn(async () => {
+        await Promise.all(pendingWrites);
+      }),
+      abort: vi.fn(async () => {}),
+    } as unknown as WritableStreamDefaultWriter<Uint8Array>;
+
+    return {
+      writer,
+      getWrittenBytes: () => writtenBytes,
+    };
+  }
 
   it('successfully receives chunks and verifies valid SHA-256 hash', async () => {
     const onCompleted = vi.fn();
@@ -188,6 +337,106 @@ describe('FileReceiver Integrity, Ordering, and Reassembly', () => {
 
     expect(onCompleted).toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('finishes after all concurrently received chunks are written', async () => {
+    const data = new Uint8Array([11, 12, 13, 14, 15, 16]);
+    const offer = { ...mockOffer, size: data.byteLength };
+    const delayedWriter = createDelayedWriter(10);
+    const onCompleted = vi.fn();
+    const onError = vi.fn();
+    const receiver = new FileReceiver({
+      offer,
+      writableStream: delayedWriter.writer,
+      onCompleted,
+      onError,
+    });
+
+    const receivePromises = [
+      receiver.receiveChunk(encodeChunk(fileId, 0, data.subarray(0, 3))),
+      receiver.receiveChunk(encodeChunk(fileId, 1, data.subarray(3, 6))),
+    ];
+    await receiver.finish({
+      type: 'file-end',
+      id: fileId,
+      sha256: bytesToHex(sha256(data)),
+      chunkCount: 2,
+      totalBytes: data.byteLength,
+    });
+    await Promise.all(receivePromises);
+
+    expect(delayedWriter.writer.close).toHaveBeenCalledOnce();
+    expect(onCompleted).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges only bytes whose writes have completed', async () => {
+    const data = new Uint8Array(4 * 1024 * 1024);
+    const offer = { ...mockOffer, size: data.byteLength };
+    const delayedWriter = createDelayedWriter(1);
+    const onAck = vi.fn();
+    const receiver = new FileReceiver({
+      offer,
+      writableStream: delayedWriter.writer,
+      onAck,
+    });
+
+    const receives: Promise<void>[] = [];
+    for (let offset = 0, index = 0; offset < data.byteLength; offset += 16 * 1024, index++) {
+      receives.push(
+        receiver.receiveChunk(
+          encodeChunk(fileId, index, data.subarray(offset, offset + 16 * 1024)),
+        ),
+      );
+    }
+
+    expect(onAck).not.toHaveBeenCalled();
+    await Promise.all(receives);
+
+    expect(onAck).toHaveBeenCalledOnce();
+    expect(onAck).toHaveBeenCalledWith(data.byteLength);
+    expect(onAck.mock.calls.every(([bytes]) => bytes <= delayedWriter.getWrittenBytes())).toBe(true);
+  });
+
+  it('rejects bytes exceeding the offer while earlier writes are pending', async () => {
+    const offer = { ...mockOffer, size: 5 };
+    const delayedWriter = createDelayedWriter(10);
+    const onError = vi.fn();
+    const receiver = new FileReceiver({
+      offer,
+      writableStream: delayedWriter.writer,
+      onError,
+    });
+
+    const firstReceive = receiver.receiveChunk(
+      encodeChunk(fileId, 0, new Uint8Array([1, 2, 3, 4, 5])),
+    );
+    await receiver.receiveChunk(encodeChunk(fileId, 1, new Uint8Array([6])));
+    await firstReceive;
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('more data') }),
+    );
+  });
+
+  it('acknowledges every 4 MiB and the final chunk after it is processed', async () => {
+    const ackedBytes: number[] = [];
+    const size = 4 * 1024 * 1024 + 16 * 1024;
+    const offer: FileOfferMsg = { ...mockOffer, size };
+    const receiver = new FileReceiver({
+      offer,
+      onAck: (bytes) => ackedBytes.push(bytes),
+    });
+    const chunkCount = size / (16 * 1024);
+
+    for (let index = 0; index < chunkCount; index++) {
+      await receiver.receiveChunk(
+        encodeChunk(fileId, index, new Uint8Array(16 * 1024)),
+      );
+    }
+
+    expect(ackedBytes).toEqual([4 * 1024 * 1024, size]);
   });
 
   it('fails transfer on SHA-256 hash mismatch', async () => {

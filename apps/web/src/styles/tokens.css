@@ -1,0 +1,104 @@
+/*
+ * QuickDrop design tokens.
+ * Palette and proportions are sampled from the UI reference
+ * ("Gig Share Website" by Halo Lab on Dribbble) and used as inspiration only.
+ * Rule: component CSS may use ONLY these variables for color, radius, shadow,
+ * spacing, type and motion. No hardcoded values in component files.
+ */
+
+:root {
+  /* ── Surfaces ───────────────────────────────────────────── */
+  --color-backdrop: #a8acb1;      /* page background behind the frame */
+  --color-frame: #ffffff;         /* big rounded frame around the hero */
+  --color-hero: #636c79;          /* slate hero panel */
+  --color-hero-card: #747f8e;     /* lighter slate card (inside drop zone) */
+  --color-section: #f5f5f7;       /* light sections below the hero */
+  --color-card: #ffffff;
+
+  /* ── Text ───────────────────────────────────────────────── */
+  --color-text-on-hero: #ffffff;
+  --color-text-on-hero-muted: #eef0f3; /* keep >= 4.5:1 on --color-hero */
+  --color-text-heading: #040026;
+  --color-text-body: #54535a;
+
+  /* ── Accents (taken from the reference's tile patterns) ─── */
+  --color-accent-red: #ff4033;
+  --color-accent-orange: #fe792d;
+  --color-accent-indigo: #4d4e8d;
+  --color-accent-mint: #8bb7a2;
+  --color-accent-cream: #cfc7b5;
+  --color-accent-brown: #432f2c;
+  --color-accent-ink: #101812;
+  --color-accent-tan: #c5936b;
+
+  /* ── Semantic ───────────────────────────────────────────── */
+  --color-success: var(--color-accent-mint);
+  --color-danger: var(--color-accent-red);
+  --color-border-on-hero: rgba(255, 255, 255, 0.55);
+  --color-border-light: rgba(4, 0, 38, 0.1);
+  --focus-ring: 0 0 0 3px rgba(77, 78, 141, 0.55);
+  --focus-ring-on-hero: 0 0 0 3px rgba(255, 255, 255, 0.8);
+
+  /* ── Typography ─────────────────────────────────────────── */
+  /* Install later: pnpm --filter @quickdrop/web add @fontsource-variable/outfit
+     The fallbacks below keep the app working until then. */
+  --font-sans: 'Outfit Variable', 'Outfit', system-ui, -apple-system, 'Segoe UI',
+    Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --text-hero: clamp(2.5rem, 6vw, 4.5rem); /* big light headline */
+  --text-h2: clamp(1.75rem, 3.5vw, 2.5rem);
+  --text-h3: 1.25rem;
+  --text-body: 1rem;
+  --text-small: 0.875rem;
+  --text-tiny: 0.75rem;
+
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --leading-tight: 1.1;
+  --leading-body: 1.6;
+
+  /* ── Shape ──────────────────────────────────────────────── */
+  --radius-frame: 40px;
+  --radius-panel: 30px;
+  --radius-card: 22px;
+  --radius-tile: 24px;
+  --radius-button: 8px;
+  --radius-pill: 999px;
+
+  /* ── Shadows ────────────────────────────────────────────── */
+  --shadow-tile: 0 20px 40px rgba(16, 24, 18, 0.22);
+  --shadow-card: 0 10px 30px rgba(4, 0, 38, 0.1);
+  --shadow-inner-card: 0 12px 28px rgba(16, 24, 18, 0.18);
+
+  /* ── Spacing (4px base) ─────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  --content-max: 1120px;
+  --hero-text-max: 700px;
+
+  /* ── Motion ─────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 300ms;
+  --dur-slow: 600ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}

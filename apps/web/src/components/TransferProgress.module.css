@@ -73,6 +73,29 @@
   font-weight: var(--weight-semibold);
 }
 
+.verifyingIndicator {
+  width: var(--space-3);
+  height: var(--space-3);
+  border: var(--space-1) solid var(--color-text-on-hero-muted);
+  border-top-color: var(--color-accent-mint);
+  border-radius: var(--radius-pill);
+  animation: verifySpin var(--dur-slow) var(--ease) infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes verifySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .verifyingIndicator {
+    animation: none;
+    border-top-color: var(--color-accent-mint);
+  }
+}
+
 .cancelButton {
   align-self: flex-end;
   background: transparent;

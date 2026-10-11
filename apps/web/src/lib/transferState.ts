@@ -6,6 +6,7 @@ export type TransferStateKind =
   | 'idle'
   | 'offered'
   | 'transferring'
+  | 'verifying'
   | 'awaiting_confirmation'
   | 'completed'
   | 'failed'
@@ -25,6 +26,7 @@ export type TransferAction =
   | { type: 'START_SENDING'; offer: FileOfferMsg }
   | { type: 'ACCEPT_TRANSFER' }
   | { type: 'UPDATE_PROGRESS'; progress: TransferProgress }
+  | { type: 'BEGIN_VERIFYING' }
   | { type: 'AWAIT_CONFIRMATION' }
   | { type: 'FILE_RESULT'; id: string; ok: boolean; error?: string }
   | { type: 'COMPLETE_TRANSFER'; blob?: Blob }
@@ -46,9 +48,10 @@ export const initialTransferState: TransferState = {
  * - Only 1 transfer at a time: OFFER_INCOMING and START_SENDING are rejected if not idle
  * - ACCEPT_TRANSFER is only valid from 'offered'
  * - UPDATE_PROGRESS is only valid from 'transferring'
+ * - BEGIN_VERIFYING is only valid from 'transferring' for receiver
  * - AWAIT_CONFIRMATION is only valid from 'transferring' for sender
- * - COMPLETE_TRANSFER is valid from 'awaiting_confirmation' (sender) or 'transferring' (receiver)
- * - CANCEL_TRANSFER is valid from 'offered', 'transferring', or 'awaiting_confirmation'
+ * - COMPLETE_TRANSFER is valid from 'awaiting_confirmation' (sender) or 'transferring'/'verifying' (receiver)
+ * - CANCEL_TRANSFER is valid from 'offered', 'transferring', 'verifying', or 'awaiting_confirmation'
  * - FAIL_TRANSFER is ignored if already completed or cancelled
  */
 export function transferReducer(state: TransferState, action: TransferAction): TransferState {
@@ -106,6 +109,18 @@ export function transferReducer(state: TransferState, action: TransferAction): T
       };
     }
 
+    case 'BEGIN_VERIFYING': {
+      if (state.status !== 'transferring' || state.direction !== 'receiver') {
+        return state;
+      }
+      return {
+        ...state,
+        status: 'verifying',
+        error: null,
+        progress: null,
+      };
+    }
+
     case 'AWAIT_CONFIRMATION': {
       if (state.status !== 'transferring' || state.direction !== 'sender') {
         return state;
@@ -143,10 +158,12 @@ export function transferReducer(state: TransferState, action: TransferAction): T
 
     case 'COMPLETE_TRANSFER': {
       // Receiver completes from 'transferring'; Sender completes from 'awaiting_confirmation' (or directly if not waiting)
-      if (
-        state.status !== 'transferring' &&
-        state.status !== 'awaiting_confirmation'
-      ) {
+      const receiverCanComplete =
+        state.direction === 'receiver' &&
+        (state.status === 'transferring' || state.status === 'verifying');
+      const senderCanComplete =
+        state.direction === 'sender' && state.status === 'awaiting_confirmation';
+      if (!receiverCanComplete && !senderCanComplete) {
         return state;
       }
       return {
@@ -173,6 +190,7 @@ export function transferReducer(state: TransferState, action: TransferAction): T
       if (
         state.status !== 'offered' &&
         state.status !== 'transferring' &&
+        state.status !== 'verifying' &&
         state.status !== 'awaiting_confirmation'
       ) {
         return state;
@@ -204,6 +222,7 @@ export function useTransferStateMachine() {
       startSending: (offer: FileOfferMsg) => dispatch({ type: 'START_SENDING', offer }),
       acceptTransfer: () => dispatch({ type: 'ACCEPT_TRANSFER' }),
       updateProgress: (progress: TransferProgress) => dispatch({ type: 'UPDATE_PROGRESS', progress }),
+      beginVerifying: () => dispatch({ type: 'BEGIN_VERIFYING' }),
       awaitConfirmation: () => dispatch({ type: 'AWAIT_CONFIRMATION' }),
       fileResult: (id: string, ok: boolean, error?: string) =>
         dispatch({ type: 'FILE_RESULT', id, ok, error }),

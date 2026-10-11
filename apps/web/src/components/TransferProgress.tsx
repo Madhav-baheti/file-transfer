@@ -7,7 +7,13 @@ interface TransferProgressProps {
   totalBytes: number;
   direction: 'sender' | 'receiver';
   progress: TransferProgressData | null;
-  status: 'transferring' | 'awaiting_confirmation' | 'completed' | 'failed' | 'cancelled';
+  status:
+    | 'transferring'
+    | 'verifying'
+    | 'awaiting_confirmation'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
   error?: string | null;
   onCancel?: () => void;
 }
@@ -29,7 +35,10 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
   error,
   onCancel,
 }) => {
-  const percentage = status === 'awaiting_confirmation' ? 100 : progress?.percentage || 0;
+  const percentage =
+    status === 'awaiting_confirmation' || status === 'verifying'
+      ? 100
+      : progress?.percentage || 0;
   const transferred = progress?.transferredBytes || 0;
   const speed = progress?.speedBytesPerSec
     ? `${formatBytes(progress.speedBytesPerSec)}/s`
@@ -44,7 +53,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
           {filename}
         </span>
         <span className={styles.percentage}>
-          {status === 'completed' || status === 'awaiting_confirmation'
+          {status === 'completed' || status === 'awaiting_confirmation' || status === 'verifying'
             ? '100%'
             : status === 'failed' || status === 'cancelled'
             ? 'Stopped'
@@ -57,7 +66,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
           className={styles.fill}
           style={{
             width:
-              status === 'completed' || status === 'awaiting_confirmation'
+              status === 'completed' || status === 'awaiting_confirmation' || status === 'verifying'
                 ? '100%'
                 : `${percentage}%`,
           }}
@@ -93,10 +102,17 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
         </div>
       )}
 
+      {status === 'verifying' && (
+        <div className={styles.statusIndicator} role="status" aria-live="polite">
+          <span className={styles.verifyingIndicator} aria-hidden="true" />
+          <span>Verifying and saving...</span>
+        </div>
+      )}
+
       {status === 'completed' && (
         <div className={styles.statusIndicator}>
           <span className={styles.checkIcon} aria-hidden="true">✓</span>
-          <span>Delivered and verified</span>
+          <span>{direction === 'sender' ? 'Delivered and verified' : 'Received and verified'}</span>
         </div>
       )}
 

@@ -72,4 +72,16 @@ describe('createConnectionTimer', () => {
     vi.advanceTimersByTime(1);
     expect(onGraceTimeout).toHaveBeenCalledTimes(1);
   });
+
+  it('supports the 30 second transfer confirmation timeout', () => {
+    const onTimeout = vi.fn();
+    const timer = createConnectionTimer(30000, onTimeout);
+
+    timer.start();
+    vi.advanceTimersByTime(29999);
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
 });

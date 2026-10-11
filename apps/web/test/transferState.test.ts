@@ -112,6 +112,64 @@ describe('transferReducer Guards', () => {
     expect(completed.status).toBe('completed');
   });
 
+  it('guard: AWAIT_CONFIRMATION is only valid from transferring sender after file-end', () => {
+    const fromIdle = transferReducer(initialTransferState, { type: 'AWAIT_CONFIRMATION' });
+    expect(fromIdle.status).toBe('idle');
+
+    const senderState: TransferState = {
+      ...initialTransferState,
+      status: 'transferring',
+      direction: 'sender',
+      offer: mockOffer,
+    };
+
+    const awaiting = transferReducer(senderState, { type: 'AWAIT_CONFIRMATION' });
+    expect(awaiting.status).toBe('awaiting_confirmation');
+  });
+
+  it('handles FILE_RESULT success and ignores mismatched IDs', () => {
+    const awaitingState: TransferState = {
+      ...initialTransferState,
+      status: 'awaiting_confirmation',
+      direction: 'sender',
+      offer: mockOffer,
+      progress: {
+        fileId: mockOffer.id,
+        filename: mockOffer.name,
+        totalBytes: mockOffer.size,
+        transferredBytes: mockOffer.size,
+        percentage: 100,
+        speedBytesPerSec: 512,
+        etaSeconds: 0,
+      },
+    };
+
+    const success = transferReducer(awaitingState, {
+      type: 'FILE_RESULT',
+      id: mockOffer.id,
+      ok: true,
+    });
+    expect(success.status).toBe('completed');
+    expect(success.error).toBeNull();
+
+    const mismatch = transferReducer(awaitingState, {
+      type: 'FILE_RESULT',
+      id: 'different-file-id',
+      ok: false,
+      error: 'Not my transfer',
+    });
+    expect(mismatch.status).toBe('awaiting_confirmation');
+
+    const failed = transferReducer(awaitingState, {
+      type: 'FILE_RESULT',
+      id: mockOffer.id,
+      ok: false,
+      error: 'Receiver rejected the file',
+    });
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toBe('Receiver rejected the file');
+  });
+
   it('guard: CANCEL_TRANSFER only valid from offered or transferring', () => {
     const fromIdle = transferReducer(initialTransferState, { type: 'CANCEL_TRANSFER' });
     expect(fromIdle.status).toBe('idle');

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { ChatMessage } from '../lib/session';
 import type { TransferState } from '../lib/transferState';
+import { BlobDownloadLink } from '../components/BlobDownloadLink';
 import { DropZone } from '../components/DropZone';
 import { IncomingOffer } from '../components/IncomingOffer';
 import { TransferProgress } from '../components/TransferProgress';
@@ -85,6 +86,17 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
           />
         )}
 
+        {transferState.status === 'awaiting_confirmation' && transferState.offer && (
+          <TransferProgress
+            filename={transferState.offer.name}
+            totalBytes={transferState.offer.size}
+            direction={transferState.direction || 'sender'}
+            progress={transferState.progress}
+            status="awaiting_confirmation"
+            onCancel={onCancelTransfer}
+          />
+        )}
+
         {/* Transfer Completed */}
         {transferState.status === 'completed' && transferState.offer && (
           <div className={styles.noticeBox}>
@@ -96,13 +108,13 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
               status="completed"
             />
             {transferState.completedBlob && (
-              <a
-                href={URL.createObjectURL(transferState.completedBlob)}
-                download={transferState.offer.name || 'download'}
+              <BlobDownloadLink
+                blob={transferState.completedBlob}
+                filename={transferState.offer.name || 'download'}
                 className={styles.downloadLink}
               >
                 Save {transferState.offer.name}
-              </a>
+              </BlobDownloadLink>
             )}
             <button className={styles.copyButton} onClick={onResetTransfer} type="button">
               Transfer Another File

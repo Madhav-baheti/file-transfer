@@ -26,6 +26,7 @@ export type TransferAction =
   | { type: 'ACCEPT_TRANSFER' }
   | { type: 'UPDATE_PROGRESS'; progress: TransferProgress }
   | { type: 'AWAIT_CONFIRMATION' }
+  | { type: 'FILE_RESULT'; id: string; ok: boolean; error?: string }
   | { type: 'COMPLETE_TRANSFER'; blob?: Blob }
   | { type: 'FAIL_TRANSFER'; error: string }
   | { type: 'CANCEL_TRANSFER' }
@@ -113,6 +114,30 @@ export function transferReducer(state: TransferState, action: TransferAction): T
         ...state,
         status: 'awaiting_confirmation',
         error: null,
+        progress: null,
+      };
+    }
+
+    case 'FILE_RESULT': {
+      if (state.status !== 'awaiting_confirmation' || state.offer?.id !== action.id) {
+        return state;
+      }
+
+      if (action.ok) {
+        return {
+          ...state,
+          status: 'completed',
+          error: null,
+          progress: null,
+          completedBlob: null,
+        };
+      }
+
+      return {
+        ...state,
+        status: 'failed',
+        error: action.error || 'Transfer verification failed',
+        progress: null,
       };
     }
 
@@ -180,6 +205,8 @@ export function useTransferStateMachine() {
       acceptTransfer: () => dispatch({ type: 'ACCEPT_TRANSFER' }),
       updateProgress: (progress: TransferProgress) => dispatch({ type: 'UPDATE_PROGRESS', progress }),
       awaitConfirmation: () => dispatch({ type: 'AWAIT_CONFIRMATION' }),
+      fileResult: (id: string, ok: boolean, error?: string) =>
+        dispatch({ type: 'FILE_RESULT', id, ok, error }),
       completeTransfer: (blob?: Blob) => dispatch({ type: 'COMPLETE_TRANSFER', blob }),
       failTransfer: (error: string) => dispatch({ type: 'FAIL_TRANSFER', error }),
       cancelTransfer: () => dispatch({ type: 'CANCEL_TRANSFER' }),

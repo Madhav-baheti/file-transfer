@@ -45,10 +45,12 @@ export function App() {
   // Timers created via createConnectionTimer
   const connectionTimerRef = useRef<ConnectionTimer | null>(null);
   const disconnectGraceTimerRef = useRef<ConnectionTimer | null>(null);
+  const transferConfirmationTimerRef = useRef<ConnectionTimer | null>(null);
 
   const cleanupConnections = () => {
     connectionTimerRef.current?.clear();
     disconnectGraceTimerRef.current?.clear();
+    transferConfirmationTimerRef.current?.clear();
 
     senderRef.current?.cancel('Connection closed');
     senderRef.current = null;
@@ -90,6 +92,15 @@ export function App() {
     disconnectGraceTimerRef.current = createConnectionTimer(5000, () => {
       if (statusRef.current === 'connected') {
         handleDisconnect();
+      }
+    });
+  }
+
+  if (!transferConfirmationTimerRef.current) {
+    transferConfirmationTimerRef.current = createConnectionTimer(30000, () => {
+      if (transferStatusRef.current === 'awaiting_confirmation') {
+        senderRef.current = null;
+        transferActions.failTransfer('No confirmation received');
       }
     });
   }
@@ -158,6 +169,20 @@ export function App() {
               return;
             }
 
+            case 'file-result': {
+              if (transferStatusRef.current !== 'awaiting_confirmation') {
+                return;
+              }
+              if (!transferState.offer || msg.id !== transferState.offer.id) {
+                return;
+              }
+
+              transferConfirmationTimerRef.current?.clear();
+              transferActions.fileResult(msg.id, msg.ok, msg.error);
+              senderRef.current = null;
+              return;
+            }
+
             case 'file-cancel': {
               senderRef.current?.cancel(msg.reason || 'Cancelled by peer');
               senderRef.current = null;
@@ -201,6 +226,12 @@ export function App() {
           statusRef.current === 'closed' ||
           statusRef.current === 'failed'
         ) {
+          return;
+        }
+        if (transferStatusRef.current === 'awaiting_confirmation') {
+          transferConfirmationTimerRef.current?.clear();
+          senderRef.current = null;
+          transferActions.failTransfer('No confirmation received');
           return;
         }
         handleDisconnect();
@@ -371,12 +402,14 @@ export function App() {
         transferActions.updateProgress(p);
       },
       onError: (err) => {
+        transferConfirmationTimerRef.current?.clear();
         transferActions.failTransfer(err.message);
         senderRef.current = null;
       },
       onCompleted: () => {
-        transferActions.completeTransfer();
-        senderRef.current = null;
+        transferConfirmationTimerRef.current?.clear();
+        transferActions.awaitConfirmation();
+        transferConfirmationTimerRef.current?.start();
       },
     });
 
@@ -429,10 +462,37 @@ export function App() {
         transferActions.updateProgress(p);
       },
       onError: (err) => {
+        try {
+          if (peerRef.current) {
+            peerRef.current.sendData(
+              PlaintextTransportCodec.encodeControl({
+                type: 'file-result',
+                id: offer.id,
+                ok: false,
+                error: err.message,
+              }),
+            );
+          }
+        } catch {
+          // ignore closed channel failure
+        }
         transferActions.failTransfer(err.message);
         receiverRef.current = null;
       },
       onCompleted: (blob) => {
+        try {
+          if (peerRef.current) {
+            peerRef.current.sendData(
+              PlaintextTransportCodec.encodeControl({
+                type: 'file-result',
+                id: offer.id,
+                ok: true,
+              }),
+            );
+          }
+        } catch {
+          // ignore closed channel failure
+        }
         transferActions.completeTransfer(blob);
         receiverRef.current = null;
       },

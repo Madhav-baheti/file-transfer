@@ -7,7 +7,7 @@ interface TransferProgressProps {
   totalBytes: number;
   direction: 'sender' | 'receiver';
   progress: TransferProgressData | null;
-  status: 'transferring' | 'completed' | 'failed' | 'cancelled';
+  status: 'transferring' | 'awaiting_confirmation' | 'completed' | 'failed' | 'cancelled';
   error?: string | null;
   onCancel?: () => void;
 }
@@ -29,7 +29,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
   error,
   onCancel,
 }) => {
-  const percentage = progress?.percentage || 0;
+  const percentage = status === 'awaiting_confirmation' ? 100 : progress?.percentage || 0;
   const transferred = progress?.transferredBytes || 0;
   const speed = progress?.speedBytesPerSec
     ? `${formatBytes(progress.speedBytesPerSec)}/s`
@@ -44,7 +44,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
           {filename}
         </span>
         <span className={styles.percentage}>
-          {status === 'completed'
+          {status === 'completed' || status === 'awaiting_confirmation'
             ? '100%'
             : status === 'failed' || status === 'cancelled'
             ? 'Stopped'
@@ -57,7 +57,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
           className={styles.fill}
           style={{
             width:
-              status === 'completed'
+              status === 'completed' || status === 'awaiting_confirmation'
                 ? '100%'
                 : `${percentage}%`,
           }}
@@ -86,10 +86,17 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
         </>
       )}
 
+      {status === 'awaiting_confirmation' && (
+        <div className={styles.statusIndicator}>
+          <span aria-hidden="true">⏳</span>
+          <span>Sent, waiting for the other device to verify</span>
+        </div>
+      )}
+
       {status === 'completed' && (
         <div className={styles.statusIndicator}>
           <span className={styles.checkIcon} aria-hidden="true">✓</span>
-          <span>Transfer completed and verified with SHA-256</span>
+          <span>Delivered and verified</span>
         </div>
       )}
 

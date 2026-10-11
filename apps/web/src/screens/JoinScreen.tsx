@@ -25,38 +25,40 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
 
   return (
     <div className={styles.screenCard}>
-      <button className={styles.backButton} onClick={onCancel} type="button">
-        ← Back
-      </button>
-
-      <div className={styles.header}>
-        <h2>Join Session</h2>
-        <p className={styles.description}>
-          Enter the short code shown on the creating device.
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className={styles.form}>
-        <input
-          type="text"
-          className={styles.codeInput}
-          placeholder="e.g. 7-kiwi-lamp"
-          value={inputCode}
-          onChange={(e) => setInputCode(e.target.value)}
-          disabled={isConnecting}
-          autoFocus
-        />
-
-        {error && <p className={styles.errorMessage}>{error}</p>}
-
-        <button
-          type="submit"
-          className={styles.submitButton}
-          disabled={!inputCode.trim() || isConnecting}
-        >
-          {isConnecting ? 'Connecting...' : 'Connect'}
+      <div className={styles.innerCard}>
+        <button className={styles.backButton} onClick={onCancel} type="button">
+          ← Back
         </button>
-      </form>
+
+        <div className={styles.header}>
+          <h2>Join Session</h2>
+          <p className={styles.description}>
+            Enter the short code shown on the creating device.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className={styles.form}>
+          <input
+            type="text"
+            className={styles.codeInput}
+            placeholder="e.g. 7-kiwi-lamp"
+            value={inputCode}
+            onChange={(e) => setInputCode(e.target.value)}
+            disabled={isConnecting}
+            autoFocus
+          />
+
+          {error && <p className={styles.errorMessage}>{error}</p>}
+
+          <button
+            type="submit"
+            className={styles.submitButton}
+            disabled={!inputCode.trim() || isConnecting}
+          >
+            {isConnecting ? 'Connecting...' : 'Connect'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };

@@ -1,59 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@700&display=swap');
-
-/* ─── CSS Custom Properties (Design Tokens) ──────────── */
-
-:root {
-  /* Colors — Light Mode */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f7fa;
-  --bg-elevated: #ffffff;
-  --text-primary: #1a1d26;
-  --text-secondary: #6b7280;
-  --accent: #6c5ce7;
-  --accent-hover: #5a4bd1;
-  --accent-gradient: linear-gradient(135deg, #6c5ce7, #a855f7);
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --border: #e5e7eb;
-
-  /* Spacing (4px base unit) */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-2xl: 48px;
-  --space-3xl: 64px;
-
-  /* Typography */
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
-
-  /* Rendering */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  color-scheme: light dark;
-}
-
-/* ─── Dark Mode ───────────────────────────────────────── */
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #0f1117;
-    --bg-secondary: #1a1d2e;
-    --bg-elevated: #232636;
-    --text-primary: #f0f1f5;
-    --text-secondary: #9ca3af;
-    --border: #2d3148;
-  }
-}
-
-/* ─── Reset ───────────────────────────────────────────── */
+/* ─── Global Base Styles ─────────────────────────────────────────── */
 
 *,
 *::before,
@@ -63,33 +8,51 @@
   padding: 0;
 }
 
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
   min-height: 100vh;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  font-family: var(--font-sans);
+  background-color: var(--color-backdrop);
+  color: var(--color-text-body);
+  line-height: var(--leading-body);
+  padding: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  body {
+    padding: var(--space-6);
+  }
 }
 
 #root {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-/* ─── Base Element Styles ─────────────────────────────── */
-
 button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+input {
   font-family: inherit;
 }
 
 a {
-  color: var(--accent);
+  color: inherit;
   text-decoration: none;
 }
 
-a:hover {
-  text-decoration: underline;
-}
-
-/* Focus visible for accessibility */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }

@@ -1,0 +1,88 @@
+.outerContainer {
+  border: 1px dashed var(--color-border-on-hero);
+  border-radius: var(--radius-panel);
+  padding: var(--space-2);
+  background: transparent;
+  transition: border-color var(--dur) var(--ease);
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.outerContainerHover {
+  border-style: solid;
+  border-color: var(--color-frame);
+}
+
+.outerContainerDisabled {
+  opacity: 0.6;
+}
+
+.innerCard {
+  width: 100%;
+  background: var(--color-hero-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-inner-card);
+  border: none;
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  color: var(--color-text-on-hero);
+  font-family: var(--font-sans);
+  text-align: center;
+  transition: transform var(--dur) var(--ease), filter var(--dur) var(--ease);
+}
+
+.innerCard:hover:not(:disabled),
+.outerContainerHover .innerCard {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.innerCard:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}
+
+.innerCard:disabled {
+  cursor: not-allowed;
+}
+
+.plusCircle {
+  width: var(--space-7);
+  height: var(--space-7);
+  border-radius: var(--radius-pill);
+  background: var(--color-frame);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.plusIcon {
+  width: var(--space-4);
+  height: var(--space-4);
+  stroke: var(--color-hero);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.label {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.hint {
+  font-size: var(--text-tiny);
+  color: var(--color-text-on-hero-muted);
+  line-height: var(--leading-tight);
+}
+
+.fileInputHidden {
+  display: none;
+}

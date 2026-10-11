@@ -19,37 +19,39 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({ code, onCancel }) =>
 
   return (
     <div className={styles.screenCard}>
-      <button className={styles.backButton} onClick={onCancel}>
-        ← Back
-      </button>
+      <div className={styles.innerCard}>
+        <button className={styles.backButton} onClick={onCancel} type="button">
+          ← Back
+        </button>
 
-      <div className={styles.header}>
-        <h2>Session Created</h2>
-        <p className={styles.description}>
-          Share this short code with the other device to connect.
-        </p>
-      </div>
+        <div className={styles.header}>
+          <h2>Session Created</h2>
+          <p className={styles.description}>
+            Share this short code with the other device to connect.
+          </p>
+        </div>
 
-      <div className={styles.codeContainer}>
-        <span className={styles.codeBadge}>{code || 'Generating...'}</span>
-        <button
-          className={styles.copyButton}
-          onClick={handleCopy}
-          disabled={!code}
-          type="button"
-        >
-          {copied ? '✓ Copied' : '📋 Copy Code'}
+        <div className={styles.codeContainer}>
+          <span className={styles.codeBadge}>{code || 'Generating...'}</span>
+          <button
+            className={styles.copyButton}
+            onClick={handleCopy}
+            disabled={!code}
+            type="button"
+          >
+            {copied ? '✓ Copied' : 'Copy Code'}
+          </button>
+        </div>
+
+        <div className={styles.statusBox}>
+          <div className={styles.pulseDot} />
+          <span>Waiting for peer to join... (Expires in 5 min)</span>
+        </div>
+
+        <button className={styles.cancelButton} onClick={onCancel} type="button">
+          Cancel Session
         </button>
       </div>
-
-      <div className={styles.statusBox}>
-        <div className={styles.pulseDot} />
-        <span>Waiting for peer to join... (Expires in 5 min)</span>
-      </div>
-
-      <button className={styles.cancelButton} onClick={onCancel} type="button">
-        Cancel Session
-      </button>
     </div>
   );
 };

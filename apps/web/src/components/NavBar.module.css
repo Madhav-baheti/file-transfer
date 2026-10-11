@@ -1,0 +1,127 @@
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-bottom: var(--space-6);
+  position: relative;
+  z-index: 10;
+}
+
+.leftGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-on-hero);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.logoMark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.logoCircleOne {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-mint);
+}
+
+.logoCircleTwo {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-frame);
+}
+
+.links {
+  display: none;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+@media (min-width: 768px) {
+  .links {
+    display: flex;
+  }
+}
+
+.navLink {
+  color: var(--color-text-on-hero-muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+
+.navLink:hover {
+  color: var(--color-text-on-hero);
+}
+
+.rightGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mintIconButton {
+  width: var(--space-7);
+  height: var(--space-7);
+  background: var(--color-accent-mint);
+  border-radius: var(--radius-button);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-heading);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.mintIconButton:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile);
+}
+
+.mintIconButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}
+
+.iconSvg {
+  width: var(--space-4);
+  height: var(--space-4);
+  stroke: var(--color-text-heading);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.outlinedButton {
+  border: 1px solid var(--color-border-on-hero);
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-on-hero);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.outlinedButton:hover {
+  border-color: var(--color-frame);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.outlinedButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}

@@ -1,32 +1,62 @@
 import { useEffect, useRef, useState } from 'react';
-import { PROTOCOL_VERSION } from '@quickdrop/protocol';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
 import { PeerManager } from './lib/peer';
 import { createConnectionTimer, type ConnectionTimer } from './lib/connectionTimer';
+import { useTransferStateMachine } from './lib/transferState';
+import { FileSender, FileReceiver, sanitizeFilename } from './lib/transfer';
+import {
+  PlaintextTransportCodec,
+  ControlMessageSchema,
+  type ControlMessage,
+} from './lib/protocol';
 import { CreateScreen } from './screens/CreateScreen';
 import { JoinScreen } from './screens/JoinScreen';
 import { ConnectedScreen } from './screens/ConnectedScreen';
+import { NavBar } from './components/NavBar';
+import { DecorativeTiles } from './components/DecorativeTiles';
+import { PairingCards } from './components/PairingCards';
+import { LightSections } from './components/LightSections';
 import styles from './App.module.css';
 
 export function App() {
   const { state, actions } = useSessionStateMachine();
+  const {
+    state: transferState,
+    actions: transferActions,
+  } = useTransferStateMachine();
+
   const [sendError, setSendError] = useState<string | null>(null);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
 
-  // Keep latest status in a ref to avoid stale closures in callbacks
+  // Active sender and receiver instances
+  const senderRef = useRef<FileSender | null>(null);
+  const receiverRef = useRef<FileReceiver | null>(null);
+
+  // Keep latest statuses in refs to avoid stale closures in callbacks
   const statusRef = useRef(state.status);
   statusRef.current = state.status;
 
-  // Timers created via createConnectionTimer (Item 3)
+  const transferStatusRef = useRef(transferState.status);
+  transferStatusRef.current = transferState.status;
+
+  // Timers created via createConnectionTimer
   const connectionTimerRef = useRef<ConnectionTimer | null>(null);
   const disconnectGraceTimerRef = useRef<ConnectionTimer | null>(null);
 
   const cleanupConnections = () => {
     connectionTimerRef.current?.clear();
     disconnectGraceTimerRef.current?.clear();
+
+    senderRef.current?.cancel('Connection closed');
+    senderRef.current = null;
+
+    receiverRef.current?.cancel('Connection closed');
+    receiverRef.current = null;
+
+    transferActions.resetTransfer();
 
     peerRef.current?.close();
     peerRef.current = null;
@@ -64,10 +94,96 @@ export function App() {
     });
   }
 
+  // ─── Data Channel Dispatcher (Text Chat + File Control + Binary Chunks) ─────
+  const handleDataChannelMessage = async (data: string | ArrayBuffer) => {
+    if (statusRef.current !== 'connected') return;
+
+    // 1. Binary message -> forward to active FileReceiver
+    if (data instanceof ArrayBuffer) {
+      if (receiverRef.current) {
+        await receiverRef.current.receiveChunk(data);
+      }
+      return;
+    }
+
+    // 2. String message -> try parsing as JSON ControlMessage
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        const controlParsed = ControlMessageSchema.safeParse(parsed);
+        if (controlParsed.success) {
+          const msg: ControlMessage = controlParsed.data;
+
+          switch (msg.type) {
+            case 'file-offer': {
+              // Only 1 transfer at a time: reject if active
+              if (transferStatusRef.current !== 'idle') {
+                const declineMsg = PlaintextTransportCodec.encodeControl({
+                  type: 'file-decline',
+                  id: msg.id,
+                  reason: 'Receiver is currently busy with another transfer',
+                });
+                peerRef.current?.sendData(declineMsg);
+                return;
+              }
+
+              // Sanitize filename on offer
+              const sanitizedOffer = {
+                ...msg,
+                name: sanitizeFilename(msg.name),
+              };
+              transferActions.offerIncoming(sanitizedOffer);
+              return;
+            }
+
+            case 'file-accept': {
+              // Sender receives accept -> begin streaming
+              if (senderRef.current && transferStatusRef.current === 'transferring') {
+                senderRef.current.start();
+              }
+              return;
+            }
+
+            case 'file-decline': {
+              senderRef.current?.cancel(msg.reason || 'Receiver declined transfer');
+              senderRef.current = null;
+              transferActions.failTransfer(`Transfer declined: ${msg.reason || 'Receiver declined'}`);
+              return;
+            }
+
+            case 'file-end': {
+              if (receiverRef.current) {
+                await receiverRef.current.finish(msg);
+              }
+              return;
+            }
+
+            case 'file-cancel': {
+              senderRef.current?.cancel(msg.reason || 'Cancelled by peer');
+              senderRef.current = null;
+              receiverRef.current?.cancel(msg.reason || 'Cancelled by peer');
+              receiverRef.current = null;
+              transferActions.cancelTransfer();
+              return;
+            }
+
+            case 'text': {
+              // Plain text chat message capped at 4000 characters
+              actions.addMessage('peer', msg.body.slice(0, 4000));
+              return;
+            }
+          }
+        }
+      } catch {
+        // Plain string fallback for simple text chat
+        actions.addMessage('peer', data.slice(0, 4000));
+      }
+    }
+  };
+
   const setupPeerConnectionEvents = () => {
     return {
       onDataChannelOpen: () => {
-        // Ignore if session is idle, closed, or failed
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -80,7 +196,6 @@ export function App() {
         actions.connected();
       },
       onDataChannelClose: () => {
-        // Item 2: onDataChannelClose must be ignored when status is idle, closed, or failed
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -90,13 +205,10 @@ export function App() {
         }
         handleDisconnect();
       },
-      onMessage: (data: string) => {
-        if (statusRef.current !== 'connected') return;
-        // Phase 3: PLAINTEXT text messages capped at 4000 characters
-        actions.addMessage('peer', data);
+      onMessage: (data: string | ArrayBuffer) => {
+        handleDataChannelMessage(data);
       },
       onConnectionStateChange: (pcState: RTCPeerConnectionState) => {
-        // Item 2: onConnectionStateChange must be ignored when status is idle, closed, or failed
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -119,7 +231,6 @@ export function App() {
         }
       },
       onError: (err: unknown) => {
-        // Item 2: onError must be ignored when status is idle, closed, or failed
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -150,7 +261,6 @@ export function App() {
         if (msg.type === 'created') {
           actions.created(msg.code);
         } else if (msg.type === 'peer-joined') {
-          // Peer found -> start 20s connection timeout and initiate WebRTC offer
           actions.peerFound();
           connectionTimerRef.current?.start();
 
@@ -177,7 +287,6 @@ export function App() {
       });
 
       sig.onDisconnect(() => {
-        // Use statusRef to prevent stale closures
         if (statusRef.current === 'waiting' || statusRef.current === 'connecting') {
           cleanupConnections();
           actions.fail('Disconnected from signaling server');
@@ -205,7 +314,6 @@ export function App() {
 
       sig.onMessage((msg) => {
         if (msg.type === 'joined') {
-          // Responder successfully joined the session -> start 20s connection timeout
           connectionTimerRef.current?.start();
 
           const callbacks = setupPeerConnectionEvents();
@@ -218,7 +326,6 @@ export function App() {
 
           peerRef.current = peer;
         } else if (msg.type === 'error') {
-          // Wrong code allows retrying on the Join screen without returning home
           connectionTimerRef.current?.clear();
           peerRef.current?.close();
           peerRef.current = null;
@@ -231,7 +338,6 @@ export function App() {
       });
 
       sig.onDisconnect(() => {
-        // Use statusRef to prevent stale closures
         if (statusRef.current === 'connecting') {
           cleanupConnections();
           actions.fail('Disconnected from signaling server');
@@ -245,7 +351,136 @@ export function App() {
     }
   };
 
-  // ─── 3. Send message over RTCDataChannel ──────────────────────────────────────
+  // ─── 3. File Transfer Actions ────────────────────────────────────────────────
+  const handleSelectFile = (file: File) => {
+    if (!peerRef.current || statusRef.current !== 'connected') {
+      setSendError('Cannot send file: not connected');
+      return;
+    }
+    const channel = peerRef.current.getDataChannel();
+    if (!channel || channel.readyState !== 'open') {
+      setSendError('Data channel is not open');
+      return;
+    }
+
+    const sender = new FileSender({
+      file,
+      dataChannel: channel,
+      codec: PlaintextTransportCodec,
+      onProgress: (p) => {
+        transferActions.updateProgress(p);
+      },
+      onError: (err) => {
+        transferActions.failTransfer(err.message);
+        senderRef.current = null;
+      },
+      onCompleted: () => {
+        transferActions.completeTransfer();
+        senderRef.current = null;
+      },
+    });
+
+    senderRef.current = sender;
+    const offer = sender.getOffer();
+    transferActions.startSending(offer);
+
+    // Send file-offer control message over data channel
+    const encodedOffer = PlaintextTransportCodec.encodeControl(offer);
+    peerRef.current.sendData(encodedOffer);
+  };
+
+  const handleAcceptTransfer = async () => {
+    if (!transferState.offer || !peerRef.current) return;
+    const offer = transferState.offer;
+
+    let writableStream: WritableStreamDefaultWriter<Uint8Array> | null = null;
+
+    // Chromium File System Access API check (user gesture is this button click)
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        // @ts-expect-error showSaveFilePicker browser API
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: offer.name,
+        });
+        const writable = await fileHandle.createWritable();
+        writableStream = writable.getWriter();
+      } catch (err: unknown) {
+        // If user cancelled save dialog -> decline and do not start
+        if ((err as { name?: string })?.name === 'AbortError') {
+          const declineMsg = PlaintextTransportCodec.encodeControl({
+            type: 'file-decline',
+            id: offer.id,
+            reason: 'User cancelled save dialog',
+          });
+          peerRef.current.sendData(declineMsg);
+          transferActions.resetTransfer();
+          return;
+        }
+        console.warn('showSaveFilePicker failed or unsupported, falling back to Blob:', err);
+      }
+    }
+
+    transferActions.acceptTransfer();
+
+    const receiver = new FileReceiver({
+      offer,
+      codec: PlaintextTransportCodec,
+      writableStream,
+      onProgress: (p) => {
+        transferActions.updateProgress(p);
+      },
+      onError: (err) => {
+        transferActions.failTransfer(err.message);
+        receiverRef.current = null;
+      },
+      onCompleted: (blob) => {
+        transferActions.completeTransfer(blob);
+        receiverRef.current = null;
+      },
+    });
+
+    receiverRef.current = receiver;
+
+    // Send file-accept message
+    const acceptMsg = PlaintextTransportCodec.encodeControl({
+      type: 'file-accept',
+      id: offer.id,
+    });
+    peerRef.current.sendData(acceptMsg);
+  };
+
+  const handleDeclineTransfer = () => {
+    if (!transferState.offer || !peerRef.current) return;
+    const declineMsg = PlaintextTransportCodec.encodeControl({
+      type: 'file-decline',
+      id: transferState.offer.id,
+      reason: 'Receiver declined',
+    });
+    peerRef.current.sendData(declineMsg);
+    transferActions.resetTransfer();
+  };
+
+  const handleCancelTransfer = () => {
+    if (senderRef.current) {
+      senderRef.current.cancel('Sender cancelled');
+      senderRef.current = null;
+    }
+    if (receiverRef.current) {
+      receiverRef.current.cancel('Receiver cancelled');
+      receiverRef.current = null;
+    }
+    if (peerRef.current && transferState.offer) {
+      const cancelMsg = PlaintextTransportCodec.encodeControl({
+        type: 'file-cancel',
+        id: transferState.offer.id,
+        reason: 'Transfer cancelled by peer',
+      });
+      peerRef.current.sendData(cancelMsg);
+    }
+    transferActions.cancelTransfer();
+  };
+
+  // ─── 4. Plaintext Chat Messaging ─────────────────────────────────────────────
   const handleSendMessage = (text: string) => {
     setSendError(null);
     const trimmed = text.trim();
@@ -257,7 +492,12 @@ export function App() {
     }
 
     try {
-      peerRef.current.send(trimmed);
+      const chatMsg: ControlMessage = {
+        type: 'text',
+        body: trimmed.slice(0, 4000),
+      };
+      const encoded = PlaintextTransportCodec.encodeControl(chatMsg);
+      peerRef.current.sendData(encoded);
       actions.addMessage('self', trimmed);
     } catch (err) {
       console.error('[Send Message Error]', err);
@@ -273,122 +513,108 @@ export function App() {
   }, []);
 
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>QuickDrop</h1>
-        <p className={styles.subtitle}>
-          Transfer files and text directly. No sign-up. No cloud. Just a code.
-        </p>
-      </header>
+    <div className={styles.pageBackdrop}>
+      <div className={styles.frame}>
+        <section id="hero" className={styles.heroPanel}>
+          <DecorativeTiles />
+          <NavBar onStartSession={handleStartCreate} />
 
-      <main className={styles.cards}>
-        {state.status === 'idle' && (
-          <>
-            <div className={styles.card}>
-              <span className={styles.icon}>📤</span>
-              <h2>Create Session</h2>
-              <p>Create a session and get a code for the other device</p>
-              <button
-                className={styles.primaryButton}
-                onClick={handleStartCreate}
-                type="button"
-              >
-                Create
-              </button>
-            </div>
-            <div className={styles.card}>
-              <span className={styles.icon}>📥</span>
-              <h2>Join Session</h2>
-              <p>Enter an existing session code to connect</p>
-              <button
-                className={styles.secondaryButton}
-                onClick={() => actions.promptJoin()}
-                type="button"
-              >
-                Join
-              </button>
-            </div>
-          </>
-        )}
+          <header className={styles.heroHeader}>
+            <h1 className={styles.headline}>Send big files, skip the cloud.</h1>
+            <p className={styles.subtext}>
+              Direct from your device to theirs. Encrypted, no accounts, no uploads.
+            </p>
+          </header>
 
-        {state.status === 'waiting' && (
-          <CreateScreen code={state.code} onCancel={handleReset} />
-        )}
+          <div className={styles.heroContent}>
+            {state.status === 'idle' && (
+              <PairingCards
+                onCreateSession={handleStartCreate}
+                onJoinSession={handleStartJoin}
+              />
+            )}
 
-        {/* If responder failed (e.g. wrong code), stay on JoinScreen so user can retry */}
-        {((state.status === 'connecting' && state.role === 'responder') ||
-          (state.status === 'failed' && state.role === 'responder')) && (
-          <JoinScreen
-            onJoin={handleStartJoin}
-            onCancel={handleReset}
-            error={state.error}
-            isConnecting={state.status === 'connecting' && Boolean(state.code)}
-          />
-        )}
+            {state.status === 'waiting' && (
+              <CreateScreen code={state.code} onCancel={handleReset} />
+            )}
 
-        {state.status === 'connecting' && state.role === 'initiator' && (
-          <div className={styles.card}>
-            <span className={styles.icon}>⚡</span>
-            <h2>Connecting...</h2>
-            <p>Peer joined. Establishing direct WebRTC connection...</p>
-            <button className={styles.secondaryButton} onClick={handleReset} type="button">
-              Cancel
-            </button>
-          </div>
-        )}
+            {((state.status === 'connecting' && state.role === 'responder') ||
+              (state.status === 'failed' && state.role === 'responder')) && (
+              <JoinScreen
+                onJoin={handleStartJoin}
+                onCancel={handleReset}
+                error={state.error}
+                isConnecting={state.status === 'connecting' && Boolean(state.code)}
+              />
+            )}
 
-        {state.status === 'connected' && (
-          <ConnectedScreen
-            role={state.role}
-            messages={state.messages}
-            onSendMessage={handleSendMessage}
-            onDisconnect={handleDisconnect}
-            sendError={sendError}
-          />
-        )}
+            {state.status === 'connecting' && state.role === 'initiator' && (
+              <div className={styles.statusCardOuter}>
+                <div className={styles.statusCardInner}>
+                  <div className={styles.statusIcon} aria-hidden="true">
+                    ⚡
+                  </div>
+                  <h2 className={styles.statusTitle}>Connecting...</h2>
+                  <p className={styles.statusText}>
+                    Peer joined. Establishing direct WebRTC connection...
+                  </p>
+                  <button
+                    className={styles.outlinedActionButton}
+                    onClick={handleReset}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
-        {/* Failed or Closed for initiator or unhandled states */}
-        {((state.status === 'failed' && state.role !== 'responder') ||
-          state.status === 'closed') && (
-          <div className={styles.card}>
-            <span className={styles.icon}>
-              {state.status === 'failed' ? '⚠️' : '🔒'}
-            </span>
-            <h2>{state.status === 'failed' ? 'Connection Failed' : 'Session Closed'}</h2>
-            <p>{state.error || 'The session was closed.'}</p>
-            <button className={styles.primaryButton} onClick={handleReset} type="button">
-              Return Home
-            </button>
-          </div>
-        )}
-      </main>
+            {state.status === 'connected' && (
+              <ConnectedScreen
+                role={state.role}
+                messages={state.messages}
+                onSendMessage={handleSendMessage}
+                onDisconnect={handleDisconnect}
+                sendError={sendError}
+                transferState={transferState}
+                onSelectFile={handleSelectFile}
+                onAcceptTransfer={handleAcceptTransfer}
+                onDeclineTransfer={handleDeclineTransfer}
+                onCancelTransfer={handleCancelTransfer}
+                onResetTransfer={transferActions.resetTransfer}
+              />
+            )}
 
-      {state.status === 'idle' && (
-        <section className={styles.steps}>
-          <div className={styles.step}>
-            <span className={styles.stepNumber}>1</span>
-            <span>Create Session</span>
-          </div>
-          <span className={styles.stepArrow}>→</span>
-          <div className={styles.step}>
-            <span className={styles.stepNumber}>2</span>
-            <span>Share Code</span>
-          </div>
-          <span className={styles.stepArrow}>→</span>
-          <div className={styles.step}>
-            <span className={styles.stepNumber}>3</span>
-            <span>Connect & Chat</span>
+            {((state.status === 'failed' && state.role !== 'responder') ||
+              state.status === 'closed') && (
+              <div className={styles.statusCardOuter}>
+                <div className={styles.statusCardInner}>
+                  <div className={styles.statusIcon} aria-hidden="true">
+                    {state.status === 'failed' ? '⚠️' : '🔒'}
+                  </div>
+                  <h2 className={styles.statusTitle}>
+                    {state.status === 'failed'
+                      ? 'Connection Failed'
+                      : 'Session Closed'}
+                  </h2>
+                  <p className={styles.statusText}>
+                    {state.error || 'The session was closed.'}
+                  </p>
+                  <button
+                    className={styles.actionButton}
+                    onClick={handleReset}
+                    type="button"
+                  >
+                    Return Home
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
-      )}
 
-      <footer className={styles.footer}>
-        <span>⚡ Direct WebRTC DataChannel</span>
-        <span>🚫 Zero server storage</span>
-        <span>📄 Phase 3: Plaintext POC</span>
-      </footer>
-
-      <p className={styles.version}>Protocol v{PROTOCOL_VERSION}</p>
+        <LightSections />
+      </div>
     </div>
   );
 }

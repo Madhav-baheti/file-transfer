@@ -1,0 +1,111 @@
+.wrapper {
+  background: var(--color-section);
+  padding: var(--space-8) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+@media (min-width: 768px) {
+  .wrapper {
+    padding: var(--space-8) var(--space-7);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.sectionHeading {
+  font-size: var(--text-h2);
+  font-weight: var(--weight-regular);
+  color: var(--color-text-heading);
+  text-align: center;
+  line-height: var(--leading-tight);
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+}
+
+@media (min-width: 768px) {
+  .cardsGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card {
+  background: var(--color-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile);
+}
+
+.stepNumber {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent-mint);
+  letter-spacing: -0.02em;
+}
+
+.cardTitle {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-heading);
+  line-height: var(--leading-tight);
+}
+
+.cardText {
+  font-size: var(--text-small);
+  color: var(--color-text-body);
+  line-height: var(--leading-body);
+}
+
+.footer {
+  border-top: 1px solid var(--color-border-light);
+  padding-top: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+  font-size: var(--text-tiny);
+  color: var(--color-text-body);
+}
+
+@media (min-width: 600px) {
+  .footer {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+.footerBrand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-heading);
+}
+
+.footerLinks {
+  display: flex;
+  gap: var(--space-4);
+  color: var(--color-text-body);
+}

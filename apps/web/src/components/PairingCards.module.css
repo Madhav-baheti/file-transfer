@@ -1,0 +1,162 @@
+.pairingGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+@media (min-width: 680px) {
+  .pairingGrid {
+    flex-direction: row;
+  }
+}
+
+.outerContainer {
+  flex: 1;
+  border: 1px dashed var(--color-border-on-hero);
+  border-radius: var(--radius-panel);
+  padding: var(--space-2);
+  background: transparent;
+  display: flex;
+  box-sizing: border-box;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.outerContainer:focus-within {
+  border-color: var(--color-frame);
+  border-style: solid;
+}
+
+.innerCard {
+  width: 100%;
+  background: var(--color-hero-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-inner-card);
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-4);
+  color: var(--color-text-on-hero);
+  box-sizing: border-box;
+}
+
+.iconCircle {
+  width: var(--space-7);
+  height: var(--space-7);
+  border-radius: var(--radius-pill);
+  background: var(--color-frame);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.iconSvg {
+  width: var(--space-4);
+  height: var(--space-4);
+  stroke: var(--color-hero);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cardTitle {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.cardDesc {
+  font-size: var(--text-small);
+  color: var(--color-text-on-hero-muted);
+  line-height: var(--leading-body);
+}
+
+.createButton {
+  margin-top: auto;
+  width: 100%;
+  background: var(--color-accent-mint);
+  color: var(--color-text-heading);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.createButton:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile);
+}
+
+.createButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}
+
+.joinForm {
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.codeInput {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--color-border-on-hero);
+  border-radius: var(--radius-button);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-on-hero);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  text-align: center;
+  box-sizing: border-box;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.codeInput::placeholder {
+  color: var(--color-text-on-hero-muted);
+  opacity: 0.8;
+}
+
+.codeInput:focus {
+  outline: none;
+  border-color: var(--color-frame);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.joinButton {
+  width: 100%;
+  background: var(--color-frame);
+  color: var(--color-hero);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.joinButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile);
+}
+
+.joinButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.joinButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}

@@ -1,0 +1,91 @@
+.tilesContainer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+.tile {
+  position: absolute;
+  border-radius: var(--radius-tile);
+  box-shadow: var(--shadow-tile);
+  overflow: hidden;
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .tile {
+    display: block;
+  }
+}
+
+/* Floating animation */
+@keyframes floatOne {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(calc(var(--space-2) * -1)) rotate(1.5deg);
+  }
+}
+
+@keyframes floatTwo {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(var(--space-2)) rotate(-1.5deg);
+  }
+}
+
+/* Tile 1: Top-Left diagonal split (Mint + Ink) */
+.tileOne {
+  top: calc(var(--space-7) * -1);
+  left: calc(var(--space-5) * -1);
+  width: calc(var(--space-8) + var(--space-4));
+  height: calc(var(--space-8) + var(--space-4));
+  animation: floatOne 7s ease-in-out infinite;
+}
+
+/* Tile 2: Bottom-Left stripes (Orange + Cream) */
+.tileTwo {
+  bottom: calc(var(--space-6) * -1);
+  left: var(--space-6);
+  width: calc(var(--space-8) + var(--space-2));
+  height: calc(var(--space-8) + var(--space-2));
+  animation: floatTwo 8.5s ease-in-out infinite;
+}
+
+/* Tile 3: Top-Right quarter circle (Red + Tan) */
+.tileThree {
+  top: calc(var(--space-5) * -1);
+  right: calc(var(--space-5) * -1);
+  width: calc(var(--space-8) + var(--space-5));
+  height: calc(var(--space-8) + var(--space-5));
+  animation: floatTwo 9s ease-in-out infinite;
+}
+
+/* Tile 4: Bottom-Right half split / arch (Indigo + Mint) */
+.tileFour {
+  bottom: calc(var(--space-7) * -1);
+  right: var(--space-8);
+  width: calc(var(--space-8) + var(--space-3));
+  height: calc(var(--space-8) + var(--space-3));
+  animation: floatOne 7.5s ease-in-out infinite;
+}
+
+.tileSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tileOne,
+  .tileTwo,
+  .tileThree,
+  .tileFour {
+    animation: none;
+  }
+}

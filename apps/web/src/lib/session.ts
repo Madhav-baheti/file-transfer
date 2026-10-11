@@ -138,6 +138,8 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return {
         ...state,
         status: 'closed',
+        code: null,
+        error: null,
       };
 
     case 'RESET':

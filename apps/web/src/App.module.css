@@ -1,215 +1,164 @@
-.container {
+/* ─── Page Anatomy from DESIGN.md ────────────────────────────── */
+
+.pageBackdrop {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-xl);
-  gap: var(--space-lg);
-}
-
-/* ─── Header ──────────────────────────────────────────── */
-
-.header {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.title {
-  font-size: 3rem;
-  font-weight: 700;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  line-height: 1.1;
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  font-size: 1.25rem;
-  max-width: 480px;
-}
-
-/* ─── Cards ───────────────────────────────────────────── */
-
-.cards {
-  display: flex;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: var(--space-xl);
-}
-
-.card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: var(--space-xl);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-  min-width: 240px;
-  max-width: 320px;
-  flex: 1;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-.card h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.card p {
-  color: var(--text-secondary);
-  text-align: center;
-  font-size: 0.95rem;
-}
-
-.icon {
-  font-size: 2.5rem;
-}
-
-/* ─── Buttons ─────────────────────────────────────────── */
-
-.primaryButton {
-  background: var(--accent-gradient);
-  color: white;
-  border: none;
-  border-radius: 12px;
-  padding: 12px 32px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
   width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  box-sizing: border-box;
 }
 
-.primaryButton:hover {
-  transform: scale(1.02);
-  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.4);
-}
-
-.primaryButton:active {
-  transform: scale(0.98);
-}
-
-.secondaryButton {
-  background: transparent;
-  color: var(--accent);
-  border: 2px solid var(--accent);
-  border-radius: 12px;
-  padding: 12px 32px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease;
+.frame {
+  background-color: var(--color-frame);
+  border-radius: var(--radius-frame);
+  box-shadow: var(--shadow-card);
+  max-width: var(--content-max);
   width: 100%;
-}
-
-.secondaryButton:hover {
-  background: rgba(108, 92, 231, 0.1);
-}
-
-.secondaryButton:active {
-  background: rgba(108, 92, 231, 0.2);
-}
-
-/* ─── How It Works Steps ──────────────────────────────── */
-
-.steps {
+  overflow: hidden;
   display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  margin-top: var(--space-2xl);
-  color: var(--text-secondary);
-  font-size: 0.95rem;
+  flex-direction: column;
+  margin: 0 auto;
 }
 
-.step {
+/* ─── Hero Panel ─────────────────────────────────────────────── */
+
+.heroPanel {
+  background-color: var(--color-hero);
+  border-radius: var(--radius-panel);
+  margin: var(--space-3);
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
+  box-sizing: border-box;
 }
 
-.stepNumber {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: white;
+@media (min-width: 768px) {
+  .heroPanel {
+    margin: var(--space-4);
+    padding: var(--space-6) var(--space-7) var(--space-9);
+  }
+}
+
+.heroHeader {
+  text-align: center;
+  max-width: var(--hero-text-max);
+  margin: var(--space-4) auto var(--space-7);
+  position: relative;
+  z-index: 2;
+}
+
+.headline {
+  font-size: var(--text-hero);
+  font-weight: var(--weight-light);
+  line-height: var(--leading-tight);
+  color: var(--color-text-on-hero);
+  letter-spacing: -0.03em;
+}
+
+.subtext {
+  font-size: var(--text-body);
+  color: var(--color-text-on-hero-muted);
+  line-height: var(--leading-body);
+  margin-top: var(--space-3);
+}
+
+.heroContent {
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+}
+
+/* ─── Status Card (Connecting, Failed, Closed) ───────────────── */
+
+.statusCardOuter {
+  border: 1px dashed var(--color-border-on-hero);
+  border-radius: var(--radius-panel);
+  padding: var(--space-2);
+  width: 100%;
+  max-width: 500px;
+  box-sizing: border-box;
+}
+
+.statusCardInner {
+  background: var(--color-hero-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-inner-card);
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-4);
+  color: var(--color-text-on-hero);
+  box-sizing: border-box;
+}
+
+.statusIcon {
+  width: var(--space-7);
+  height: var(--space-7);
+  border-radius: var(--radius-pill);
+  background: var(--color-frame);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
-  font-weight: 700;
-  flex-shrink: 0;
+  font-size: var(--text-h3);
 }
 
-.stepArrow {
-  color: var(--border);
-  font-size: 1.25rem;
+.statusTitle {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
 }
 
-/* ─── Footer ──────────────────────────────────────────── */
-
-.footer {
-  display: flex;
-  gap: var(--space-lg);
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  margin-top: var(--space-2xl);
-  flex-wrap: wrap;
-  justify-content: center;
+.statusText {
+  font-size: var(--text-small);
+  color: var(--color-text-on-hero-muted);
+  line-height: var(--leading-body);
 }
 
-.version {
-  color: var(--text-secondary);
-  font-size: 0.7rem;
-  opacity: 0.5;
-  margin-top: var(--space-md);
+.actionButton {
+  background: var(--color-frame);
+  color: var(--color-hero);
+  border-radius: var(--radius-button);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
-/* ─── Mobile ──────────────────────────────────────────── */
+.actionButton:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-tile);
+}
 
-@media (max-width: 480px) {
-  .title {
-    font-size: 2.25rem;
-  }
+.actionButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}
 
-  .subtitle {
-    font-size: 1rem;
-  }
+.outlinedActionButton {
+  border: 1px solid var(--color-border-on-hero);
+  border-radius: var(--radius-button);
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-text-on-hero);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
 
-  .cards {
-    flex-direction: column;
-    width: 100%;
-  }
+.outlinedActionButton:hover {
+  border-color: var(--color-frame);
+  background: var(--overlay-light-08);
+}
 
-  .card {
-    max-width: 100%;
-  }
-
-  .steps {
-    flex-direction: column;
-    gap: var(--space-sm);
-  }
-
-  .stepArrow {
-    transform: rotate(90deg);
-  }
+.outlinedActionButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
 }

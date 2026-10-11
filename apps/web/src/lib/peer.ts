@@ -1,3 +1,4 @@
+import { exactBuffer } from './transfer';
 import { z } from 'zod';
 import type { SignalingClient } from './signaling';
 
@@ -25,7 +26,7 @@ export interface PeerManagerOptions {
   iceServers?: RTCIceServer[];
   onDataChannelOpen?: () => void;
   onDataChannelClose?: () => void;
-  onMessage?: (data: string) => void;
+  onMessage?: (data: string | ArrayBuffer) => void;
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   onError?: (err: unknown) => void;
 }
@@ -118,6 +119,7 @@ export class PeerManager {
 
   private attachDataChannel(channel: RTCDataChannel): void {
     this.channel = channel;
+    this.channel.binaryType = 'arraybuffer';
 
     this.channel.onopen = () => {
       if (this.closed) return;
@@ -132,9 +134,9 @@ export class PeerManager {
     this.channel.onmessage = (event) => {
       if (this.closed) return;
       if (typeof event.data === 'string') {
-        // Enforce max 4000 chars on receive
-        const trimmed = event.data.slice(0, 4000);
-        this.options.onMessage?.(trimmed);
+        this.options.onMessage?.(event.data);
+      } else if (event.data instanceof ArrayBuffer) {
+        this.options.onMessage?.(event.data);
       }
     };
 
@@ -256,8 +258,14 @@ export class PeerManager {
   }
 
   /**
-   * Send plaintext string message over the RTCDataChannel.
-   * Capped at 4000 characters.
+   * Returns the underlying RTCDataChannel for transfer streaming.
+   */
+  public getDataChannel(): RTCDataChannel | null {
+    return this.channel;
+  }
+
+  /**
+   * Send plaintext string or binary ArrayBuffer/Uint8Array message over the RTCDataChannel.
    */
   public send(message: string): void {
     if (this.closed) {
@@ -271,6 +279,25 @@ export class PeerManager {
     }
   }
 
+  /**
+   * Send arbitrary data (string or binary) without message length restrictions (used for control & chunks).
+   */
+    public sendData(data: string | ArrayBuffer | ArrayBufferView): void {
+    if (this.closed) {
+      throw new Error('PeerManager is closed');
+    }
+    if (!this.channel || this.channel.readyState !== 'open') {
+      throw new Error('DataChannel is not open');
+    }
+    if (typeof data === 'string') {
+      this.channel.send(data);
+    } else if (ArrayBuffer.isView(data)) {
+      // Send exactly the view's bytes, never the whole backing buffer
+      this.channel.send(exactBuffer(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)));
+    } else {
+      this.channel.send(data);
+    }
+  }
   public close(): void {
     if (this.closed) return;
     this.closed = true;

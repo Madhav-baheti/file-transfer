@@ -1,0 +1,97 @@
+.card {
+  background: var(--color-hero-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-inner-card);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  color: var(--color-text-on-hero);
+  font-family: var(--font-sans);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.fileName {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  word-break: break-all;
+  color: var(--color-text-on-hero);
+}
+
+.percentage {
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent-mint);
+  flex-shrink: 0;
+}
+
+.track {
+  width: 100%;
+  height: var(--space-2);
+  background: var(--color-hero);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--color-accent-mint);
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-fast) var(--ease);
+}
+
+.statsRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-tiny);
+  color: var(--color-text-on-hero-muted);
+}
+
+.statusIndicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+}
+
+.checkIcon {
+  color: var(--color-success);
+  font-weight: var(--weight-semibold);
+}
+
+.errorIcon {
+  color: var(--color-danger);
+  font-weight: var(--weight-semibold);
+}
+
+.cancelButton {
+  align-self: flex-end;
+  background: transparent;
+  border: 1px solid var(--color-border-on-hero);
+  color: var(--color-text-on-hero);
+  border-radius: var(--radius-button);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-tiny);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.cancelButton:hover {
+  border-color: var(--color-accent-red);
+  color: var(--color-accent-red);
+}
+
+.cancelButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}

@@ -25,7 +25,7 @@ export interface PeerManagerOptions {
   iceServers?: RTCIceServer[];
   onDataChannelOpen?: () => void;
   onDataChannelClose?: () => void;
-  onMessage?: (data: string) => void;
+  onMessage?: (data: string | ArrayBuffer) => void;
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   onError?: (err: unknown) => void;
 }
@@ -118,6 +118,7 @@ export class PeerManager {
 
   private attachDataChannel(channel: RTCDataChannel): void {
     this.channel = channel;
+    this.channel.binaryType = 'arraybuffer';
 
     this.channel.onopen = () => {
       if (this.closed) return;
@@ -132,9 +133,9 @@ export class PeerManager {
     this.channel.onmessage = (event) => {
       if (this.closed) return;
       if (typeof event.data === 'string') {
-        // Enforce max 4000 chars on receive
-        const trimmed = event.data.slice(0, 4000);
-        this.options.onMessage?.(trimmed);
+        this.options.onMessage?.(event.data);
+      } else if (event.data instanceof ArrayBuffer) {
+        this.options.onMessage?.(event.data);
       }
     };
 
@@ -256,8 +257,14 @@ export class PeerManager {
   }
 
   /**
-   * Send plaintext string message over the RTCDataChannel.
-   * Capped at 4000 characters.
+   * Returns the underlying RTCDataChannel for transfer streaming.
+   */
+  public getDataChannel(): RTCDataChannel | null {
+    return this.channel;
+  }
+
+  /**
+   * Send plaintext string or binary ArrayBuffer/Uint8Array message over the RTCDataChannel.
    */
   public send(message: string): void {
     if (this.closed) {
@@ -266,6 +273,26 @@ export class PeerManager {
     if (this.channel && this.channel.readyState === 'open') {
       const payload = message.slice(0, 4000);
       this.channel.send(payload);
+    } else {
+      throw new Error('DataChannel is not open');
+    }
+  }
+
+  /**
+   * Send arbitrary data (string or binary) without message length restrictions (used for control & chunks).
+   */
+  public sendData(data: string | ArrayBuffer | Uint8Array): void {
+    if (this.closed) {
+      throw new Error('PeerManager is closed');
+    }
+    if (this.channel && this.channel.readyState === 'open') {
+      if (typeof data === 'string') {
+        this.channel.send(data);
+      } else if (data instanceof Uint8Array) {
+        this.channel.send(data.buffer as ArrayBuffer);
+      } else {
+        this.channel.send(data);
+      }
     } else {
       throw new Error('DataChannel is not open');
     }

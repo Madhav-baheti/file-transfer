@@ -16,7 +16,8 @@ export const VerificationPanel: React.FC<VerificationPanelProps> = ({
     <h2 id="verification-heading" className={styles.heading}>
       Verify this connection
     </h2>
-    <p className={styles.digits} aria-label={`Verification digits ${sas}`}>
+    <p className={styles.digits}>
+      <span className={styles.srOnly}>Verification digits: </span>
       {sas}
     </p>
     <p className={styles.instructions}>

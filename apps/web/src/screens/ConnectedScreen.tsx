@@ -186,7 +186,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         {messages.length === 0 ? (
           <div className={styles.emptyNotice}>
             <p>Peer-to-peer data channel is connected!</p>
-            <p className={styles.subtle}>Send files above or plaintext messages below.</p>
+            <p className={styles.subtle}>Connected. Send files above or messages below.</p>
           </div>
         ) : (
           messages.map((m) => (
@@ -209,7 +209,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         <input
           type="text"
           className={styles.textInput}
-          placeholder="Type a plaintext message (max 4000 chars)..."
+          placeholder="Type a message (max 4000 chars)..."
           maxLength={4000}
           value={inputText}
           disabled={!verification.confirmed}

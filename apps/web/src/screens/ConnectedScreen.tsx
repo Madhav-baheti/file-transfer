@@ -5,10 +5,18 @@ import { BlobDownloadLink } from '../components/BlobDownloadLink';
 import { DropZone } from '../components/DropZone';
 import { IncomingOffer } from '../components/IncomingOffer';
 import { TransferProgress } from '../components/TransferProgress';
+import { VerificationPanel } from '../components/VerificationPanel';
 import styles from './Screens.module.css';
 
 interface ConnectedScreenProps {
   role: 'initiator' | 'responder' | null;
+  verification: {
+    sas: string;
+    required: boolean;
+    confirmed: boolean;
+  };
+  onConfirmVerification: () => void;
+  onRejectVerification: () => void;
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
   onDisconnect: () => void;
@@ -25,6 +33,9 @@ interface ConnectedScreenProps {
 
 export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
   role,
+  verification,
+  onConfirmVerification,
+  onRejectVerification,
   messages,
   onSendMessage,
   onDisconnect,
@@ -40,6 +51,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!verification.confirmed) return;
     const trimmed = inputText.trim();
     if (trimmed) {
       onSendMessage(trimmed);
@@ -59,10 +71,28 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         </button>
       </div>
 
+      {verification.required && !verification.confirmed && (
+        <VerificationPanel
+          sas={verification.sas}
+          onConfirm={onConfirmVerification}
+          onReject={onRejectVerification}
+        />
+      )}
+      {verification.confirmed && (
+        <span className={styles.connectedBadge}>
+          {verification.required ? `Verified · ${verification.sas}` : 'Verified by code'}
+        </span>
+      )}
+
       {/* ─── File Transfer Section (Components using tokens.css) ────────── */}
       <div className={styles.transferBox}>
         {transferState.status === 'idle' && (
-          <DropZone onFileSelected={onSelectFile} />
+          <>
+            <DropZone onFileSelected={onSelectFile} disabled={!verification.confirmed} />
+            {!verification.confirmed && (
+              <p className={styles.subtle}>Verify the connection first</p>
+            )}
+          </>
         )}
 
         {/* Incoming offer prompt for receiver */}
@@ -182,16 +212,23 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
           placeholder="Type a plaintext message (max 4000 chars)..."
           maxLength={4000}
           value={inputText}
+          disabled={!verification.confirmed}
+          aria-describedby={!verification.confirmed ? 'verification-chat-hint' : undefined}
           onChange={(e) => setInputText(e.target.value)}
         />
         <button
           type="submit"
           className={styles.sendButton}
-          disabled={!inputText.trim()}
+          disabled={!verification.confirmed || !inputText.trim()}
         >
           Send
         </button>
       </form>
+      {!verification.confirmed && (
+        <p id="verification-chat-hint" className={styles.subtle}>
+          Verify the connection first
+        </p>
+      )}
     </div>
   );
 };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
 import { PeerManager } from './lib/peer';
+import { SecureChannelError } from './lib/secureChannel';
 import { createConnectionTimer, type ConnectionTimer } from './lib/connectionTimer';
 import { useTransferStateMachine } from './lib/transferState';
 import { FileSender, FileReceiver, sanitizeFilename } from './lib/transfer';
@@ -21,6 +22,20 @@ import styles from './App.module.css';
 
 const SIGNALING_UNREACHABLE_MESSAGE =
   'The pairing service is not reachable. Check your internet connection and try again.';
+const VERIFICATION_FAILED_MESSAGE =
+  'Verification failed. The digits did not match, so the connection may not be secure. Nothing was sent.';
+
+interface VerificationState {
+  sas: string;
+  required: boolean;
+  confirmed: boolean;
+}
+
+const INITIAL_VERIFICATION_STATE: VerificationState = {
+  sas: '',
+  required: false,
+  confirmed: false,
+};
 
 export function App() {
   const { state, actions } = useSessionStateMachine();
@@ -30,6 +45,9 @@ export function App() {
   } = useTransferStateMachine();
 
   const [sendError, setSendError] = useState<string | null>(null);
+  const [verification, setVerification] = useState<VerificationState>(
+    INITIAL_VERIFICATION_STATE,
+  );
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
@@ -44,6 +62,9 @@ export function App() {
 
   const transferStatusRef = useRef(transferState.status);
   transferStatusRef.current = transferState.status;
+
+  const verificationRef = useRef(verification);
+  verificationRef.current = verification;
 
   // Timers created via createConnectionTimer
   const connectionTimerRef = useRef<ConnectionTimer | null>(null);
@@ -62,6 +83,8 @@ export function App() {
     receiverRef.current = null;
 
     transferActions.resetTransfer();
+    verificationRef.current = INITIAL_VERIFICATION_STATE;
+    setVerification(INITIAL_VERIFICATION_STATE);
 
     peerRef.current?.close();
     peerRef.current = null;
@@ -79,6 +102,45 @@ export function App() {
     cleanupConnections();
     setSendError(null);
     actions.reset();
+  };
+
+  const handleSecureReady = (info: { sas: string; requiresSasConfirmation: boolean }) => {
+    if (
+      statusRef.current === 'idle' ||
+      statusRef.current === 'closed' ||
+      statusRef.current === 'failed'
+    ) {
+      return;
+    }
+
+    const nextVerification: VerificationState = {
+      sas: info.sas,
+      required: info.requiresSasConfirmation,
+      confirmed: !info.requiresSasConfirmation,
+    };
+    verificationRef.current = nextVerification;
+    setVerification(nextVerification);
+
+    connectionTimerRef.current?.clear();
+    disconnectGraceTimerRef.current?.clear();
+    actions.connected();
+  };
+
+  const handleConfirmVerification = () => {
+    const current = verificationRef.current;
+    if (!current.required || current.confirmed) return;
+
+    const nextVerification = { ...current, confirmed: true };
+    verificationRef.current = nextVerification;
+    setVerification(nextVerification);
+  };
+
+  const handleRejectVerification = () => {
+    const current = verificationRef.current;
+    if (!current.required || current.confirmed) return;
+
+    cleanupConnections();
+    actions.fail(VERIFICATION_FAILED_MESSAGE);
   };
 
   // Initialize connection and grace timers once
@@ -110,6 +172,27 @@ export function App() {
 
   // ─── Data Channel Dispatcher (Text Chat + File Control + Binary Chunks) ─────
   const handleDataChannelMessage = async (data: string | ArrayBuffer) => {
+    if (statusRef.current !== 'connected' && statusRef.current !== 'connecting') return;
+
+    if (!verificationRef.current.confirmed) {
+      if (typeof data === 'string') {
+        try {
+          const parsed = ControlMessageSchema.safeParse(JSON.parse(data));
+          if (parsed.success && parsed.data.type === 'file-offer') {
+            peerRef.current?.sendData(
+              PlaintextTransportCodec.encodeControl({
+                type: 'file-decline',
+                id: parsed.data.id,
+                reason: 'The other device has not finished verification yet',
+              }),
+            );
+          }
+        } catch (err) {
+          console.error('[Verification Gate Error]', err);
+        }
+      }
+      return;
+    }
     if (statusRef.current !== 'connected') return;
 
     // 1. Binary message -> forward to active FileReceiver
@@ -223,18 +306,6 @@ export function App() {
 
   const setupPeerConnectionEvents = () => {
     return {
-      onDataChannelOpen: () => {
-        if (
-          statusRef.current === 'idle' ||
-          statusRef.current === 'closed' ||
-          statusRef.current === 'failed'
-        ) {
-          return;
-        }
-        connectionTimerRef.current?.clear();
-        disconnectGraceTimerRef.current?.clear();
-        actions.connected();
-      },
       onDataChannelClose: () => {
         if (
           statusRef.current === 'idle' ||
@@ -286,7 +357,11 @@ export function App() {
         }
         console.error('[WebRTC Error]', err);
         cleanupConnections();
-        actions.fail('WebRTC connection failed');
+        actions.fail(
+          err instanceof SecureChannelError
+            ? `Secure connection failed: ${err.message}`
+            : 'WebRTC connection failed',
+        );
       },
     };
   };
@@ -315,6 +390,7 @@ export function App() {
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: true,
+            onSecureReady: (info) => handleSecureReady(info),
             ...callbacks,
           });
 
@@ -367,6 +443,7 @@ export function App() {
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: false,
+            onSecureReady: (info) => handleSecureReady(info),
             ...callbacks,
           });
 
@@ -399,13 +476,17 @@ export function App() {
 
   // ─── 3. File Transfer Actions ────────────────────────────────────────────────
   const handleSelectFile = (file: File) => {
+    if (!verificationRef.current.confirmed) {
+      setSendError('Verify the connection first');
+      return;
+    }
     if (!peerRef.current || statusRef.current !== 'connected') {
       setSendError('Cannot send file: not connected');
       return;
     }
-    const channel = peerRef.current.getDataChannel();
+    const channel = peerRef.current.getTransferChannel();
     if (!channel || channel.readyState !== 'open') {
-      setSendError('Data channel is not open');
+      setSendError('Cannot start transfer: the secure data channel is unavailable');
       return;
     }
 
@@ -579,6 +660,11 @@ export function App() {
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    if (!verificationRef.current.confirmed) {
+      setSendError('Verify the connection first');
+      return;
+    }
+
     if (!peerRef.current || statusRef.current !== 'connected') {
       setSendError('Cannot send: data channel is not connected');
       return;
@@ -633,7 +719,9 @@ export function App() {
             )}
 
             {((state.status === 'connecting' && state.role === 'responder') ||
-              (state.status === 'failed' && state.role === 'responder')) && (
+              (state.status === 'failed' &&
+                state.role === 'responder' &&
+                state.error !== VERIFICATION_FAILED_MESSAGE)) && (
               <JoinScreen
                 onJoin={handleStartJoin}
                 onCancel={handleReset}
@@ -666,6 +754,9 @@ export function App() {
             {state.status === 'connected' && (
               <ConnectedScreen
                 role={state.role}
+                verification={verification}
+                onConfirmVerification={handleConfirmVerification}
+                onRejectVerification={handleRejectVerification}
                 messages={state.messages}
                 onSendMessage={handleSendMessage}
                 onDisconnect={handleDisconnect}
@@ -680,7 +771,9 @@ export function App() {
             )}
 
             {((state.status === 'failed' &&
-              (state.role !== 'responder' || state.error === SIGNALING_UNREACHABLE_MESSAGE)) ||
+              (state.role !== 'responder' ||
+                state.error === SIGNALING_UNREACHABLE_MESSAGE ||
+                state.error === VERIFICATION_FAILED_MESSAGE)) ||
               state.status === 'closed') && (
               <div className={styles.statusCardOuter}>
                 <div className={styles.statusCardInner}>

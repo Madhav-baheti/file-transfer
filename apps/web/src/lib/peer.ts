@@ -141,8 +141,11 @@ export class PeerManager {
       if (this.closed) return;
       if (typeof event.data !== 'string' && !(event.data instanceof ArrayBuffer)) return;
       if (!this.transport) {
-        this.failSecureTransport(new Error('Secure transport is not initialized'));
-        return;
+        this.beginSecureHandshake();
+        if (!this.transport) {
+          this.failSecureTransport(new Error('Secure transport is not initialized'));
+          return;
+        }
       }
       this.transport.handleRaw(event.data);
     };
@@ -181,11 +184,12 @@ export class PeerManager {
         psk: this.options.psk,
         wire: {
           send: (data) => {
-            if (typeof data === 'string') {
-              this.channel?.send(data);
-            } else {
-              this.channel?.send(data);
+            const channel = this.channel;
+            if (!channel || channel.readyState !== 'open') {
+              throw new Error('DataChannel is not open');
             }
+            const send = channel.send.bind(channel) as (value: string | ArrayBuffer) => void;
+            send(data);
           },
         },
         onMessage: (data) => this.options.onMessage?.(data),
@@ -353,10 +357,6 @@ export class PeerManager {
       removeEventListener: channel.removeEventListener.bind(channel),
       send: (data) => this.sendData(data),
     };
-  }
-
-  public getDataChannel(): TransferChannel | null {
-    return this.getTransferChannel();
   }
 
   public close(): void {

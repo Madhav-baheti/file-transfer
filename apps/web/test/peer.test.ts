@@ -217,6 +217,54 @@ describe('PeerManager Signaling & ICE Buffering', () => {
     peer.close();
   });
 
+  it('starts the handshake when a message arrives before the open event', async () => {
+    const onError = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: false,
+      onError,
+    });
+    const pc = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
+    const channel = new MockRTCDataChannel();
+    pc.ondatachannel?.({ channel: channel as unknown as RTCDataChannel });
+
+    channel.readyState = 'open';
+    channel.onmessage?.({
+      data: '{"type":"hs-commit","commit":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+    });
+
+    await vi.waitFor(() => {
+      expect(channel.send).toHaveBeenCalledWith(
+        expect.stringMatching(/^\{"type":"hs-hello","pub":/),
+      );
+    });
+    expect(onError).not.toHaveBeenCalled();
+    peer.close();
+  });
+
+  it('reports a wire error when the channel is not open', async () => {
+    const onError = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: false,
+      onError,
+    });
+    const pc = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
+    const channel = new MockRTCDataChannel();
+    pc.ondatachannel?.({ channel: channel as unknown as RTCDataChannel });
+
+    channel.onmessage?.({
+      data: '{"type":"hs-commit","commit":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'DataChannel is not open' }),
+      );
+    });
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
   it('rejects plaintext raw-channel application messages after open', async () => {
     const onError = vi.fn();
     const onMessage = vi.fn();

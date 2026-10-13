@@ -103,10 +103,17 @@ export interface TransferProgress {
   etaSeconds: number;
 }
 
+export type TransferChannel = Pick<
+  RTCDataChannel,
+  'readyState' | 'bufferedAmount' | 'bufferedAmountLowThreshold' | 'addEventListener' | 'removeEventListener'
+> & {
+  send(data: string | ArrayBuffer | ArrayBufferView): void;
+};
+
 export interface SenderTransferOptions {
   file: File;
   fileId?: string;
-  dataChannel: RTCDataChannel;
+  dataChannel: TransferChannel;
   codec?: TransportCodec;
   onProgress?: (progress: TransferProgress) => void;
   onError?: (err: Error) => void;
@@ -123,7 +130,7 @@ const ACK_WAIT_TIMEOUT_MS = 30000;
 export class FileSender {
   private file: File;
   private fileId: string;
-  private channel: RTCDataChannel;
+  private channel: TransferChannel;
   private codec: TransportCodec;
   private onProgress?: (progress: TransferProgress) => void;
   private onError?: (err: Error) => void;

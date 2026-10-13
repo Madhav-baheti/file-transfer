@@ -1,4 +1,6 @@
-import { exactBuffer } from './transfer';
+import type { TransferChannel } from './transfer';
+import { SecureTransport } from './secureTransport';
+import { extractFingerprint } from './secureChannel';
 import { z } from 'zod';
 import type { SignalingClient } from './signaling';
 
@@ -24,9 +26,11 @@ export interface PeerManagerOptions {
   signaling: SignalingClient;
   isInitiator: boolean;
   iceServers?: RTCIceServer[];
+  psk?: Uint8Array;
   onDataChannelOpen?: () => void;
   onDataChannelClose?: () => void;
   onMessage?: (data: string | ArrayBuffer) => void;
+  onSecureReady?: (info: { sas: string; requiresSasConfirmation: boolean }) => void;
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   onError?: (err: unknown) => void;
 }
@@ -60,6 +64,7 @@ function parseIceServers(): RTCIceServer[] {
 export class PeerManager {
   private pc: RTCPeerConnection;
   private channel: RTCDataChannel | null = null;
+  private transport: SecureTransport | null = null;
   private options: PeerManagerOptions;
   private unsubscribeSignaling: (() => void) | null = null;
   private closed = false;
@@ -123,6 +128,7 @@ export class PeerManager {
 
     this.channel.onopen = () => {
       if (this.closed) return;
+      this.beginSecureHandshake();
       this.options.onDataChannelOpen?.();
     };
 
@@ -133,17 +139,73 @@ export class PeerManager {
 
     this.channel.onmessage = (event) => {
       if (this.closed) return;
-      if (typeof event.data === 'string') {
-        this.options.onMessage?.(event.data);
-      } else if (event.data instanceof ArrayBuffer) {
-        this.options.onMessage?.(event.data);
+      if (typeof event.data !== 'string' && !(event.data instanceof ArrayBuffer)) return;
+      if (!this.transport) {
+        this.beginSecureHandshake();
+        if (!this.transport) {
+          this.failSecureTransport(new Error('Secure transport is not initialized'));
+          return;
+        }
       }
+      this.transport.handleRaw(event.data);
     };
 
     this.channel.onerror = (err) => {
       if (this.closed) return;
       this.options.onError?.(err);
     };
+
+    if (channel.readyState === 'open') {
+      queueMicrotask(() => {
+        if (!this.closed && channel.readyState === 'open') {
+          this.beginSecureHandshake();
+        }
+      });
+    }
+  }
+
+  private beginSecureHandshake(): void {
+    if (this.closed || this.transport) return;
+
+    const localFingerprint = extractFingerprint(this.pc.localDescription?.sdp ?? '');
+    const remoteFingerprint = extractFingerprint(this.pc.remoteDescription?.sdp ?? '');
+    if (!localFingerprint || !remoteFingerprint) {
+      this.failSecureTransport(
+        new Error('Could not read the connection fingerprint; refusing to continue unencrypted'),
+      );
+      return;
+    }
+
+    try {
+      this.transport = new SecureTransport({
+        role: this.options.isInitiator ? 'initiator' : 'responder',
+        localFingerprint,
+        remoteFingerprint,
+        psk: this.options.psk,
+        wire: {
+          send: (data) => {
+            const channel = this.channel;
+            if (!channel || channel.readyState !== 'open') {
+              throw new Error('DataChannel is not open');
+            }
+            const send = channel.send.bind(channel) as (value: string | ArrayBuffer) => void;
+            send(data);
+          },
+        },
+        onMessage: (data) => this.options.onMessage?.(data),
+        onReady: (info) => this.options.onSecureReady?.(info),
+        onError: (err) => this.failSecureTransport(err),
+      });
+      void this.transport.start();
+    } catch (err) {
+      this.failSecureTransport(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  private failSecureTransport(error: Error): void {
+    if (this.closed) return;
+    this.options.onError?.(error);
+    this.close();
   }
 
   private setupSignaling(): void {
@@ -257,50 +319,51 @@ export class PeerManager {
     }
   }
 
-  /**
-   * Returns the underlying RTCDataChannel for transfer streaming.
-   */
-  public getDataChannel(): RTCDataChannel | null {
-    return this.channel;
-  }
-
-  /**
-   * Send plaintext string or binary ArrayBuffer/Uint8Array message over the RTCDataChannel.
-   */
+  /** Sends application messages only through the established secure transport. */
   public send(message: string): void {
-    if (this.closed) {
-      throw new Error('PeerManager is closed');
-    }
-    if (this.channel && this.channel.readyState === 'open') {
-      const payload = message.slice(0, 4000);
-      this.channel.send(payload);
-    } else {
-      throw new Error('DataChannel is not open');
-    }
+    this.sendData(message.slice(0, 4000));
   }
 
-  /**
-   * Send arbitrary data (string or binary) without message length restrictions (used for control & chunks).
-   */
-    public sendData(data: string | ArrayBuffer | ArrayBufferView): void {
-    if (this.closed) {
-      throw new Error('PeerManager is closed');
+  /** Sends arbitrary application data through the secure transport. */
+  public sendData(data: string | ArrayBuffer | ArrayBufferView): void {
+    if (!this.transport?.isReady) {
+      throw new Error('Secure channel is not ready');
     }
-    if (!this.channel || this.channel.readyState !== 'open') {
-      throw new Error('DataChannel is not open');
-    }
-    if (typeof data === 'string') {
-      this.channel.send(data);
-    } else if (ArrayBuffer.isView(data)) {
-      // Send exactly the view's bytes, never the whole backing buffer
-      this.channel.send(exactBuffer(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)));
-    } else {
-      this.channel.send(data);
-    }
+    this.transport.send(data);
   }
+
+  public get isSecureReady(): boolean {
+    return this.transport?.isReady ?? false;
+  }
+
+  public getTransferChannel(): TransferChannel | null {
+    const channel = this.channel;
+    if (this.closed || !channel) return null;
+
+    return {
+      get readyState() {
+        return channel.readyState;
+      },
+      get bufferedAmount() {
+        return channel.bufferedAmount;
+      },
+      get bufferedAmountLowThreshold() {
+        return channel.bufferedAmountLowThreshold;
+      },
+      set bufferedAmountLowThreshold(value: number) {
+        channel.bufferedAmountLowThreshold = value;
+      },
+      addEventListener: channel.addEventListener.bind(channel),
+      removeEventListener: channel.removeEventListener.bind(channel),
+      send: (data) => this.sendData(data),
+    };
+  }
+
   public close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.transport?.close();
+    this.transport = null;
 
     // 1. Unsubscribe from signaling
     if (this.unsubscribeSignaling) {

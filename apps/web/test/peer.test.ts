@@ -5,16 +5,37 @@ import { SignalingClient } from '../src/lib/signaling';
 // ─── Mock RTCPeerConnection & RTCDataChannel ───────────────────────────────────
 
 class MockRTCDataChannel {
-  public readyState = 'open';
+  public readyState: RTCDataChannelState = 'connecting';
+  public bufferedAmount = 0;
+  public bufferedAmountLowThreshold = 0;
   public onopen: (() => void) | null = null;
   public onclose: (() => void) | null = null;
   public onmessage: ((e: { data: unknown }) => void) | null = null;
   public onerror: ((err: unknown) => void) | null = null;
-  public send = vi.fn();
+  public peer: MockRTCDataChannel | null = null;
+  private listeners = new Map<string, Set<EventListener>>();
+  public send = vi.fn((data: string | ArrayBuffer | ArrayBufferView) => {
+    queueMicrotask(() => this.peer?.onmessage?.({ data }));
+  });
+  public addEventListener = vi.fn((type: string, listener: EventListener) => {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  });
+  public removeEventListener = vi.fn((type: string, listener: EventListener) => {
+    this.listeners.get(type)?.delete(listener);
+  });
+  public open = () => {
+    this.readyState = 'open';
+    this.onopen?.();
+  };
   public close = vi.fn(() => {
     this.readyState = 'closed';
     // Emulate browser event if handler is still attached
     this.onclose?.();
+    for (const listener of this.listeners.get('close') ?? []) {
+      listener(new Event('close'));
+    }
   });
 }
 
@@ -23,6 +44,14 @@ class MockRTCPeerConnection {
   public onconnectionstatechange: (() => void) | null = null;
   public onicecandidate: ((e: { candidate: unknown }) => void) | null = null;
   public ondatachannel: ((e: { channel: RTCDataChannel }) => void) | null = null;
+  public localDescription: RTCSessionDescription | null = {
+    type: 'offer',
+    sdp: 'v=0\r\na=fingerprint:sha-256 AA:BB:CC:DD',
+  } as RTCSessionDescription;
+  public remoteDescription: RTCSessionDescription | null = {
+    type: 'answer',
+    sdp: 'v=0\r\na=fingerprint:sha-256 AA:BB:CC:DD',
+  } as RTCSessionDescription;
 
   public setRemoteDescription = vi.fn().mockResolvedValue(undefined);
   public setLocalDescription = vi.fn().mockResolvedValue(undefined);
@@ -31,6 +60,50 @@ class MockRTCPeerConnection {
   public addIceCandidate = vi.fn().mockResolvedValue(undefined);
   public createDataChannel = vi.fn().mockReturnValue(new MockRTCDataChannel());
   public close = vi.fn();
+}
+
+function createPeerPair(
+  initiatorOptions: Partial<ConstructorParameters<typeof PeerManager>[0]> = {},
+  responderOptions: Partial<ConstructorParameters<typeof PeerManager>[0]> = {},
+) {
+  const initiator = new PeerManager({
+    signaling: mockSignalingForPair(),
+    isInitiator: true,
+    ...initiatorOptions,
+  });
+  const responder = new PeerManager({
+    signaling: mockSignalingForPair(),
+    isInitiator: false,
+    ...responderOptions,
+  });
+  const initiatorPc = (initiator as unknown as { pc: MockRTCPeerConnection }).pc;
+  const responderPc = (responder as unknown as { pc: MockRTCPeerConnection }).pc;
+  const initiatorChannel = initiatorPc.createDataChannel.mock.results[0].value as MockRTCDataChannel;
+  const responderChannel = new MockRTCDataChannel();
+  initiatorChannel.peer = responderChannel;
+  responderChannel.peer = initiatorChannel;
+  responderPc.ondatachannel?.({ channel: responderChannel as unknown as RTCDataChannel });
+
+  return {
+    initiator,
+    responder,
+    initiatorChannel,
+    responderChannel,
+    initiatorPc,
+    responderPc,
+    open() {
+      initiatorChannel.open();
+      responderChannel.open();
+    },
+  };
+}
+
+function mockSignalingForPair(): SignalingClient {
+  return {
+    send: vi.fn(),
+    onMessage: vi.fn(() => () => {}),
+    close: vi.fn(),
+  } as unknown as SignalingClient;
 }
 
 // Attach mocks to global scope for tests
@@ -128,18 +201,149 @@ describe('PeerManager Signaling & ICE Buffering', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('caps messages sent via send() to 4000 characters', () => {
+  it('sends an hs-commit on the raw channel when it opens', async () => {
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: true,
+    });
+    const channel = (peer as unknown as { channel: MockRTCDataChannel }).channel;
+
+    channel.open();
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+
+    expect(channel.send).toHaveBeenCalledWith(
+      expect.stringMatching(/^\{"type":"hs-commit","commit":/),
+    );
+    peer.close();
+  });
+
+  it('starts the handshake when a message arrives before the open event', async () => {
+    const onError = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: false,
+      onError,
+    });
+    const pc = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
+    const channel = new MockRTCDataChannel();
+    pc.ondatachannel?.({ channel: channel as unknown as RTCDataChannel });
+
+    channel.readyState = 'open';
+    channel.onmessage?.({
+      data: '{"type":"hs-commit","commit":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+    });
+
+    await vi.waitFor(() => {
+      expect(channel.send).toHaveBeenCalledWith(
+        expect.stringMatching(/^\{"type":"hs-hello","pub":/),
+      );
+    });
+    expect(onError).not.toHaveBeenCalled();
+    peer.close();
+  });
+
+  it('reports a wire error when the channel is not open', async () => {
+    const onError = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: false,
+      onError,
+    });
+    const pc = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
+    const channel = new MockRTCDataChannel();
+    pc.ondatachannel?.({ channel: channel as unknown as RTCDataChannel });
+
+    channel.onmessage?.({
+      data: '{"type":"hs-commit","commit":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}',
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'DataChannel is not open' }),
+      );
+    });
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it('rejects plaintext raw-channel application messages after open', async () => {
+    const onError = vi.fn();
+    const onMessage = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: true,
+      onError,
+      onMessage,
+    });
+    const channel = (peer as unknown as { channel: MockRTCDataChannel }).channel;
+    channel.open();
+
+    channel.onmessage?.({ data: '{"type":"text"}' });
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(peer.isSecureReady).toBe(false);
+  });
+
+  it('does not allow sendData before secure readiness', () => {
     const peer = new PeerManager({
       signaling: mockSignaling,
       isInitiator: true,
     });
 
+    expect(() => peer.sendData('plaintext')).toThrow('Secure channel is not ready');
+    peer.close();
+  });
+
+  it('fails closed when a fingerprint is missing without sending plaintext', async () => {
+    const onError = vi.fn();
+    const peer = new PeerManager({
+      signaling: mockSignaling,
+      isInitiator: true,
+      onError,
+    });
+    const pc = (peer as unknown as { pc: MockRTCPeerConnection }).pc;
     const channel = (peer as unknown as { channel: MockRTCDataChannel }).channel;
-    const longText = 'a'.repeat(5000);
+    pc.localDescription = null;
 
-    peer.send(longText);
+    channel.open();
 
-    expect(channel.send).toHaveBeenCalledWith('a'.repeat(4000));
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Could not read the connection fingerprint; refusing to continue unencrypted',
+      }),
+    );
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(peer.isSecureReady).toBe(false);
+    expect(peer.getTransferChannel()).toBeNull();
+  });
+
+  it('encrypts getTransferChannel sends before they reach the raw channel', async () => {
+    const received = vi.fn();
+    const pair = createPeerPair({}, { onMessage: received });
+    pair.open();
+    await vi.waitFor(() => {
+      expect(pair.initiator.isSecureReady).toBe(true);
+      expect(pair.responder.isSecureReady).toBe(true);
+    });
+
+    const transferChannel = pair.initiator.getTransferChannel();
+    expect(transferChannel).not.toBeNull();
+    const plaintext = 'secret application payload';
+    transferChannel?.send(plaintext);
+
+    await vi.waitFor(() => {
+      expect(pair.initiatorChannel.send).toHaveBeenCalledWith(expect.any(ArrayBuffer));
+    });
+    const sentData = pair.initiatorChannel.send.mock.calls.at(-1)?.[0];
+    expect(sentData).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(sentData as ArrayBuffer)).not.toBe(plaintext);
+
+    pair.initiator.send('a'.repeat(5000));
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(2));
+    expect(received).toHaveBeenLastCalledWith('a'.repeat(4000));
+
+    pair.initiator.close();
+    pair.responder.close();
   });
 
   it('close() does not trigger onDataChannelClose or onError afterwards, and ignores incoming signals', async () => {
@@ -184,6 +388,6 @@ describe('PeerManager Signaling & ICE Buffering', () => {
     expect(onError).not.toHaveBeenCalled();
 
     // Calling send() on closed manager throws
-    expect(() => peer.send('test')).toThrow('PeerManager is closed');
+    expect(() => peer.send('test')).toThrow('Secure channel is not ready');
   });
 });

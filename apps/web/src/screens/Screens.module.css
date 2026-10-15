@@ -70,6 +70,31 @@
   gap: var(--space-4);
 }
 
+.qrContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--overlay-dark-12);
+}
+
+.shareWarning {
+  max-width: var(--hero-text-max);
+  color: var(--color-text-on-hero-muted);
+  font-size: var(--text-tiny);
+  line-height: var(--leading-body);
+  text-align: center;
+}
+
+.copyCodeButton {
+  align-self: center;
+  color: var(--color-text-on-hero-muted);
+  font-size: var(--text-tiny);
+  text-decoration: underline;
+}
+
 .codeBadge {
   font-family: var(--font-mono);
   font-size: var(--text-h2);

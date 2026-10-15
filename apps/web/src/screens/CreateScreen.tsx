@@ -1,19 +1,29 @@
 import React, { useState } from 'react';
+import { QRDisplay } from '../components/QRDisplay';
 import styles from './Screens.module.css';
 
 interface CreateScreenProps {
   code: string | null;
+  pairingUrl: string | null;
   onCancel: () => void;
+  onUseCodeOnly: () => void;
 }
 
-export const CreateScreen: React.FC<CreateScreenProps> = ({ code, onCancel }) => {
-  const [copied, setCopied] = useState(false);
+export const CreateScreen: React.FC<CreateScreenProps> = ({
+  code,
+  pairingUrl,
+  onCancel,
+  onUseCodeOnly,
+}) => {
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null);
 
-  const handleCopy = () => {
-    if (code) {
-      navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async (value: string, type: 'code' | 'link') => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(type);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopied(null);
     }
   };
 
@@ -31,17 +41,48 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({ code, onCancel }) =>
           </p>
         </div>
 
+        {pairingUrl && (
+          <div className={styles.qrContainer}>
+            <QRDisplay value={pairingUrl} label="QR code to join this session" />
+            <button
+              className={styles.copyButton}
+              onClick={() => void handleCopy(pairingUrl, 'link')}
+              disabled={!code}
+              type="button"
+            >
+              {copied === 'link' ? '✓ Copied' : 'Copy link'}
+            </button>
+            <p className={styles.shareWarning}>
+              Anyone with this link can join. Share it only with the device you want to connect
+            </p>
+          </div>
+        )}
+
         <div className={styles.codeContainer}>
           <span className={styles.codeBadge}>{code || 'Generating...'}</span>
-          <button
-            className={styles.copyButton}
-            onClick={handleCopy}
-            disabled={!code}
-            type="button"
-          >
-            {copied ? '✓ Copied' : 'Copy Code'}
-          </button>
+          {!pairingUrl && (
+            <button
+              className={styles.copyButton}
+              onClick={() => code && void handleCopy(code, 'code')}
+              disabled={!code}
+              type="button"
+            >
+              {copied === 'code' ? '✓ Copied' : 'Copy Code'}
+            </button>
+          )}
         </div>
+
+        {pairingUrl && code && (
+          <button className={styles.copyCodeButton} onClick={() => void handleCopy(code, 'code')} type="button">
+            {copied === 'code' ? '✓ Code copied' : 'Copy code'}
+          </button>
+        )}
+
+        {pairingUrl && (
+          <button className={styles.cancelButton} onClick={onUseCodeOnly} type="button">
+            Joining by typing the code? Use code-only mode
+          </button>
+        )}
 
         <div className={styles.statusBox}>
           <div className={styles.pulseDot} />

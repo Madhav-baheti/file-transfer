@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
 import { PeerManager } from './lib/peer';
-import { SecureChannelError } from './lib/secureChannel';
+import { generatePairingSecret, SecureChannelError } from './lib/secureChannel';
+import {
+  buildPairingUrl,
+  parsePairingFragment,
+  scrubPairingFragment,
+} from './lib/pairingLink';
 import { createConnectionTimer, type ConnectionTimer } from './lib/connectionTimer';
 import { useTransferStateMachine } from './lib/transferState';
 import { FileSender, FileReceiver, sanitizeFilename } from './lib/transfer';
@@ -24,6 +29,8 @@ const SIGNALING_UNREACHABLE_MESSAGE =
   'The pairing service is not reachable. Check your internet connection and try again.';
 const VERIFICATION_FAILED_MESSAGE =
   'Verification failed. The digits did not match, so the connection may not be secure. Nothing was sent.';
+const PAIRING_MODE_MISMATCH_MESSAGE =
+  'The two devices could not agree on a secure key. If one device used the QR link and the other typed the code, start again: create the session in code-only mode, or join with the QR link. If that was not the case, someone may be interfering with the connection.';
 
 interface VerificationState {
   sas: string;
@@ -45,12 +52,14 @@ export function App() {
   } = useTransferStateMachine();
 
   const [sendError, setSendError] = useState<string | null>(null);
+  const [initialPairing] = useState(() => parsePairingFragment(window.location.hash));
   const [verification, setVerification] = useState<VerificationState>(
     INITIAL_VERIFICATION_STATE,
   );
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
+  const pairingSecretRef = useRef<Uint8Array | null>(null);
 
   // Active sender and receiver instances
   const senderRef = useRef<FileSender | null>(null);
@@ -85,6 +94,7 @@ export function App() {
     transferActions.resetTransfer();
     verificationRef.current = INITIAL_VERIFICATION_STATE;
     setVerification(INITIAL_VERIFICATION_STATE);
+    pairingSecretRef.current = null;
 
     peerRef.current?.close();
     peerRef.current = null;
@@ -359,7 +369,9 @@ export function App() {
         cleanupConnections();
         actions.fail(
           err instanceof SecureChannelError
-            ? `Secure connection failed: ${err.message}`
+            ? err.message === 'Key confirmation failed'
+              ? PAIRING_MODE_MISMATCH_MESSAGE
+              : `Secure connection failed: ${err.message}`
             : 'WebRTC connection failed',
         );
       },
@@ -367,8 +379,9 @@ export function App() {
   };
 
   // ─── 1. Initiator: Create Session Flow ────────────────────────────────────────
-  const handleStartCreate = async () => {
+  const handleStartCreate = async (useQrPairing = true) => {
     cleanupConnections();
+    pairingSecretRef.current = useQrPairing ? generatePairingSecret() : null;
     setSendError(null);
     actions.startCreate();
 
@@ -390,6 +403,7 @@ export function App() {
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: true,
+            psk: pairingSecretRef.current ?? undefined,
             onSecureReady: (info) => handleSecureReady(info),
             ...callbacks,
           });
@@ -423,8 +437,9 @@ export function App() {
   };
 
   // ─── 2. Responder: Join Session Flow ──────────────────────────────────────────
-  const handleStartJoin = async (inputCode: string) => {
+  const handleStartJoin = async (inputCode: string, psk?: Uint8Array) => {
     cleanupConnections();
+    pairingSecretRef.current = psk ?? null;
     setSendError(null);
     actions.startJoin(inputCode);
 
@@ -443,17 +458,14 @@ export function App() {
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: false,
+            psk: pairingSecretRef.current ?? undefined,
             onSecureReady: (info) => handleSecureReady(info),
             ...callbacks,
           });
 
           peerRef.current = peer;
         } else if (msg.type === 'error') {
-          connectionTimerRef.current?.clear();
-          peerRef.current?.close();
-          peerRef.current = null;
-          signalingRef.current?.close();
-          signalingRef.current = null;
+          cleanupConnections();
           actions.fail(msg.reason);
         } else if (msg.type === 'peer-closed') {
           handleDisconnect();
@@ -473,6 +485,18 @@ export function App() {
       actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
     }
   };
+
+  const joinRef = useRef(handleStartJoin);
+  joinRef.current = handleStartJoin;
+
+  useEffect(() => {
+    if (!initialPairing) return;
+    const timer = window.setTimeout(() => {
+      scrubPairingFragment();
+      void joinRef.current(initialPairing.code, initialPairing.psk);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialPairing]);
 
   // ─── 3. File Transfer Actions ────────────────────────────────────────────────
   const handleSelectFile = (file: File) => {
@@ -684,6 +708,15 @@ export function App() {
     }
   };
 
+  const pairingUrl =
+    state.code && pairingSecretRef.current
+      ? buildPairingUrl(
+          window.location.origin + window.location.pathname,
+          state.code,
+          pairingSecretRef.current,
+        )
+      : null;
+
   // Clean up on component unmount
   useEffect(() => {
     return () => {
@@ -696,7 +729,7 @@ export function App() {
       <div className={styles.frame}>
         <section id="hero" className={styles.heroPanel}>
           <DecorativeTiles />
-          <NavBar onStartSession={handleStartCreate} />
+          <NavBar onStartSession={() => handleStartCreate()} />
 
           <header className={styles.heroHeader}>
             <h1 className={styles.headline}>Send big files, skip the cloud.</h1>
@@ -709,19 +742,25 @@ export function App() {
           <div className={styles.heroContent}>
             {state.status === 'idle' && (
               <PairingCards
-                onCreateSession={handleStartCreate}
+                onCreateSession={() => handleStartCreate()}
                 onJoinSession={handleStartJoin}
               />
             )}
 
             {state.status === 'waiting' && (
-              <CreateScreen code={state.code} onCancel={handleReset} />
+              <CreateScreen
+                code={state.code}
+                pairingUrl={pairingUrl}
+                onCancel={handleReset}
+                onUseCodeOnly={() => handleStartCreate(false)}
+              />
             )}
 
             {((state.status === 'connecting' && state.role === 'responder') ||
               (state.status === 'failed' &&
                 state.role === 'responder' &&
-                state.error !== VERIFICATION_FAILED_MESSAGE)) && (
+                state.error !== VERIFICATION_FAILED_MESSAGE &&
+                state.error !== PAIRING_MODE_MISMATCH_MESSAGE)) && (
               <JoinScreen
                 onJoin={handleStartJoin}
                 onCancel={handleReset}
@@ -773,7 +812,8 @@ export function App() {
             {((state.status === 'failed' &&
               (state.role !== 'responder' ||
                 state.error === SIGNALING_UNREACHABLE_MESSAGE ||
-                state.error === VERIFICATION_FAILED_MESSAGE)) ||
+                state.error === VERIFICATION_FAILED_MESSAGE ||
+                state.error === PAIRING_MODE_MISMATCH_MESSAGE)) ||
               state.status === 'closed') && (
               <div className={styles.statusCardOuter}>
                 <div className={styles.statusCardInner}>
@@ -793,7 +833,7 @@ export function App() {
                       className={styles.actionButton}
                       onClick={
                         state.role === 'initiator'
-                          ? handleStartCreate
+                          ? () => handleStartCreate()
                           : () => handleStartJoin(state.code ?? '')
                       }
                       type="button"

@@ -5,10 +5,14 @@
   border-radius: var(--radius-card);
   background: var(--color-frame);
   box-shadow: var(--shadow-card);
+
 }
 
 .canvas {
   display: block;
   max-width: 100%;
   height: auto;
+}
+.quietZone[hidden] {
+  display: none;
 }

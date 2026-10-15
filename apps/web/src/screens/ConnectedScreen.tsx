@@ -80,7 +80,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
       )}
       {verification.confirmed && (
         <span className={styles.connectedBadge}>
-          {verification.required ? `Verified · ${verification.sas}` : 'Verified by code'}
+          {verification.required ? `Verified · ${verification.sas}` : 'Verified by QR code'}
         </span>
       )}
 

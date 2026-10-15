@@ -18,9 +18,9 @@ export function QRDisplay({ value, size = 240, label }: QRDisplayProps) {
     setGenerated(false);
     if (!canvas) return;
 
-    const styles = getComputedStyle(document.documentElement);
-    const dark = styles.getPropertyValue('--color-accent-ink').trim();
-    const light = styles.getPropertyValue('--color-frame').trim();
+    const computed = getComputedStyle(document.documentElement);
+    const dark = computed.getPropertyValue('--color-accent-ink').trim();
+    const light = computed.getPropertyValue('--color-frame').trim();
 
     QRCode.toCanvas(canvas, value, {
       errorCorrectionLevel: 'M',
@@ -40,10 +40,8 @@ export function QRDisplay({ value, size = 240, label }: QRDisplayProps) {
     };
   }, [size, value]);
 
-  if (!generated) return null;
-
   return (
-    <div className={styles.quietZone} role="img" aria-label={label}>
+    <div className={styles.quietZone} role="img" aria-label={label} hidden={!generated}>
       <canvas ref={canvasRef} className={styles.canvas} />
     </div>
   );

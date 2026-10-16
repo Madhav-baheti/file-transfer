@@ -5,13 +5,16 @@ import {
   ClientMessageSchema,
   type ServerMessage,
 } from '@quickdrop/protocol';
-import { SessionStore } from './sessions';
-import { TokenBucketRateLimiter } from './rateLimit';
-import { loadConfig } from './config';
+import { SessionStore } from './sessions.js';
+import { TokenBucketRateLimiter } from './rateLimit.js';
+import { loadConfig } from './config.js';
+import { getClientIp } from './clientIp.js';
 
 const config = loadConfig();
 const sessionStore = new SessionStore(config.sessionTtlMs);
 const rateLimiter = new TokenBucketRateLimiter(config.rateLimitCapacity, config.rateLimitRefillRate);
+const aliveClients = new WeakMap<WebSocket, boolean>();
+let shuttingDown = false;
 
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
@@ -26,19 +29,25 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 const server = createServer((req, res) => {
   // CORS check for HTTP
   const origin = req.headers.origin;
-  if (origin && config.allowedOrigins[0] !== '*' && !config.allowedOrigins.includes(origin)) {
+  if (
+    origin &&
+    !config.allowedOrigins.includes('*') &&
+    !config.allowedOrigins.includes(origin)
+  ) {
     res.writeHead(403);
     res.end('Origin not allowed');
     return;
   }
 
-  // Health endpoint per TECH_STACK.md §5
-  if (req.url === '/health') {
-    res.writeHead(200, {
+  if (req.method === 'GET' && req.url === '/health') {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
+    };
+    if (origin) headers['Access-Control-Allow-Origin'] = origin;
+    res.writeHead(200, {
+      ...headers,
     });
-    res.end(JSON.stringify({ status: 'ok', protocol: PROTOCOL_VERSION }));
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -51,7 +60,10 @@ const wss = new WebSocketServer({
   maxPayload: config.maxMessageSize,
   verifyClient: (info, callback) => {
     const origin = info.origin;
-    if (config.allowedOrigins[0] !== '*' && origin && !config.allowedOrigins.includes(origin)) {
+    if (
+      !config.allowedOrigins.includes('*') &&
+      (!origin || !config.allowedOrigins.includes(origin))
+    ) {
       callback(false, 403, 'Forbidden origin');
       return;
     }
@@ -60,7 +72,15 @@ const wss = new WebSocketServer({
 });
 
 wss.on('connection', (ws, req) => {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const ip = getClientIp(
+    req.headers['x-forwarded-for'],
+    req.socket.remoteAddress,
+    config.trustProxyHops,
+  );
+  aliveClients.set(ws, true);
+  ws.on('pong', () => {
+    aliveClients.set(ws, true);
+  });
 
   ws.on('message', (rawData) => {
     let payload: unknown;
@@ -176,8 +196,49 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-server.listen(config.port, () => {
-  console.log(`[signaling] QuickDrop signaling server online on http://localhost:${config.port}`);
+const keepAliveInterval = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    if (aliveClients.get(ws) === false) {
+      ws.terminate();
+      continue;
+    }
+    aliveClients.set(ws, false);
+    ws.ping((error?: Error) => {
+      if (error) ws.terminate();
+    });
+  }
+}, 25_000);
+keepAliveInterval.unref();
+
+function shutdown(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(keepAliveInterval);
+
+  const forceExitTimer = setTimeout(() => {
+    for (const ws of wss.clients) ws.terminate();
+    server.closeAllConnections();
+    process.exit(0);
+  }, 5000);
+
+  server.close(() => {
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  });
+
+  for (const ws of wss.clients) {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(1001, 'Server shutting down');
+    }
+  }
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+server.listen(config.port, '0.0.0.0', () => {
+  console.log(`[signaling] QuickDrop signaling server online on port ${config.port}`);
   console.log(`[signaling] Protocol v${PROTOCOL_VERSION}`);
-  console.log(`[signaling] Health check: http://localhost:${config.port}/health`);
+  console.log(`[signaling] Health check available at /health`);
 });

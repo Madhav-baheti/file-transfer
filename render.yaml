@@ -11,8 +11,9 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      # Public address, not a secret.
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: https://quickdrop-web-ypyd.onrender.com
       - key: TRUST_PROXY_HOPS
         value: "1"
       - key: SESSION_TTL_MS
@@ -26,8 +27,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Public address, not a secret.
       - key: VITE_SIGNALING_URL
-        sync: false
+        value: wss://quickdrop-signaling-t2a5.onrender.com
     routes:
       - type: rewrite
         source: /*

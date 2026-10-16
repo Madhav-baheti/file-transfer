@@ -18,7 +18,8 @@ services:
       - key: SESSION_TTL_MS
         value: "300000"
 
-  - type: static
+  - type: web
+    runtime: static
     name: quickdrop-web
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @quickdrop/protocol build && pnpm --filter @quickdrop/web build
     staticPublishPath: ./apps/web/dist

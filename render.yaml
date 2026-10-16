@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: quickdrop-signaling
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @quickdrop/protocol build && pnpm --filter @quickdrop/signaling build
+    startCommand: node apps/signaling/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: SESSION_TTL_MS
+        value: "300000"
+
+  - type: static
+    name: quickdrop-web
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @quickdrop/protocol build && pnpm --filter @quickdrop/web build
+    staticPublishPath: ./apps/web/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_SIGNALING_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

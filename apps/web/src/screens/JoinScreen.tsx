@@ -6,6 +6,7 @@ interface JoinScreenProps {
   onCancel: () => void;
   error?: string | null;
   isConnecting?: boolean;
+  isWaking?: boolean;
 }
 
 export const JoinScreen: React.FC<JoinScreenProps> = ({
@@ -13,6 +14,7 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
   onCancel,
   error,
   isConnecting = false,
+  isWaking = false,
 }) => {
   const [inputCode, setInputCode] = useState('');
 
@@ -49,6 +51,17 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
           />
 
           {error && <p className={styles.errorMessage}>{error}</p>}
+
+          {isConnecting && (
+            <div className={styles.statusBox} role="status" aria-live="polite">
+              <div className={styles.pulseDot} />
+              <span>
+                {isWaking
+                  ? 'Waking up the pairing service. On the free plan this can take up to a minute.'
+                  : 'Connecting to the pairing service...'}
+              </span>
+            </div>
+          )}
 
           <button
             type="submit"

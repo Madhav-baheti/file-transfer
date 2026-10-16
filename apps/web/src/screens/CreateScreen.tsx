@@ -5,6 +5,7 @@ import styles from './Screens.module.css';
 interface CreateScreenProps {
   code: string | null;
   pairingUrl: string | null;
+  isWaking?: boolean;
   onCancel: () => void;
   onUseCodeOnly: () => void;
 }
@@ -12,6 +13,7 @@ interface CreateScreenProps {
 export const CreateScreen: React.FC<CreateScreenProps> = ({
   code,
   pairingUrl,
+  isWaking = false,
   onCancel,
   onUseCodeOnly,
 }) => {
@@ -86,7 +88,11 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
 
         <div className={styles.statusBox}>
           <div className={styles.pulseDot} />
-          <span>Waiting for peer to join... (Expires in 5 min)</span>
+          <span>
+            {isWaking
+              ? 'Waking up the pairing service. On the free plan this can take up to a minute.'
+              : 'Waiting for peer to join... (Expires in 5 min)'}
+          </span>
         </div>
 
         <button className={styles.cancelButton} onClick={onCancel} type="button">

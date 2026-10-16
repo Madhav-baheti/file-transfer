@@ -53,6 +53,7 @@ export function App() {
 
   const [sendError, setSendError] = useState<string | null>(null);
   const [initialPairing] = useState(() => parsePairingFragment(window.location.hash));
+  const [signalingPending, setSignalingPending] = useState(false);
   const [verification, setVerification] = useState<VerificationState>(
     INITIAL_VERIFICATION_STATE,
   );
@@ -95,6 +96,7 @@ export function App() {
     verificationRef.current = INITIAL_VERIFICATION_STATE;
     setVerification(INITIAL_VERIFICATION_STATE);
     pairingSecretRef.current = null;
+    setSignalingPending(false);
 
     peerRef.current?.close();
     peerRef.current = null;
@@ -381,15 +383,20 @@ export function App() {
   // ─── 1. Initiator: Create Session Flow ────────────────────────────────────────
   const handleStartCreate = async (useQrPairing = true) => {
     cleanupConnections();
+    setSignalingPending(false);
     pairingSecretRef.current = useQrPairing ? generatePairingSecret() : null;
     setSendError(null);
     actions.startCreate();
 
     const sig = new SignalingClient();
     signalingRef.current = sig;
+    sig.onPending(() => {
+      if (signalingRef.current === sig) setSignalingPending(true);
+    });
 
     try {
       await sig.connect();
+      setSignalingPending(false);
 
       sig.onMessage((msg) => {
         if (msg.type === 'created') {
@@ -430,7 +437,13 @@ export function App() {
       });
 
       sig.send({ type: 'create' });
-    } catch {
+    } catch (err) {
+      if (signalingRef.current !== sig) return;
+      console.warn(
+        '[signaling] connection failed:',
+        err instanceof Error ? err.message : 'unknown error',
+      );
+      setSignalingPending(false);
       cleanupConnections();
       actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
     }
@@ -439,15 +452,20 @@ export function App() {
   // ─── 2. Responder: Join Session Flow ──────────────────────────────────────────
   const handleStartJoin = async (inputCode: string, psk?: Uint8Array) => {
     cleanupConnections();
+    setSignalingPending(false);
     pairingSecretRef.current = psk ?? null;
     setSendError(null);
     actions.startJoin(inputCode);
 
     const sig = new SignalingClient();
     signalingRef.current = sig;
+    sig.onPending(() => {
+      if (signalingRef.current === sig) setSignalingPending(true);
+    });
 
     try {
       await sig.connect();
+      setSignalingPending(false);
 
       sig.onMessage((msg) => {
         if (msg.type === 'joined') {
@@ -480,7 +498,13 @@ export function App() {
       });
 
       sig.send({ type: 'join', code: inputCode });
-    } catch {
+    } catch (err) {
+      if (signalingRef.current !== sig) return;
+      console.warn(
+        '[signaling] connection failed:',
+        err instanceof Error ? err.message : 'unknown error',
+      );
+      setSignalingPending(false);
       cleanupConnections();
       actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
     }
@@ -751,6 +775,7 @@ export function App() {
               <CreateScreen
                 code={state.code}
                 pairingUrl={pairingUrl}
+                isWaking={signalingPending}
                 onCancel={handleReset}
                 onUseCodeOnly={() => handleStartCreate(false)}
               />
@@ -760,12 +785,14 @@ export function App() {
               (state.status === 'failed' &&
                 state.role === 'responder' &&
                 state.error !== VERIFICATION_FAILED_MESSAGE &&
-                state.error !== PAIRING_MODE_MISMATCH_MESSAGE)) && (
+                state.error !== PAIRING_MODE_MISMATCH_MESSAGE &&
+                state.error !== SIGNALING_UNREACHABLE_MESSAGE)) && (
               <JoinScreen
                 onJoin={handleStartJoin}
                 onCancel={handleReset}
                 error={state.error}
                 isConnecting={state.status === 'connecting' && Boolean(state.code)}
+                isWaking={signalingPending}
               />
             )}
 

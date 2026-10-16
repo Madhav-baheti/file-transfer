@@ -16,6 +16,10 @@ const rateLimiter = new TokenBucketRateLimiter(config.rateLimitCapacity, config.
 const aliveClients = new WeakMap<WebSocket, boolean>();
 let shuttingDown = false;
 
+function log(message: string): void {
+  console.log(`[signaling] ${new Date().toISOString()} ${message}`);
+}
+
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
@@ -40,6 +44,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/health') {
+    log(`health check requested from origin=${origin ?? 'none'} path=${req.url}`);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -77,6 +82,7 @@ wss.on('connection', (ws, req) => {
     req.socket.remoteAddress,
     config.trustProxyHops,
   );
+  log(`websocket connected from ip=${ip} origin=${req.headers.origin ?? 'none'}`);
   aliveClients.set(ws, true);
   ws.on('pong', () => {
     aliveClients.set(ws, true);
@@ -87,12 +93,14 @@ wss.on('connection', (ws, req) => {
     try {
       payload = JSON.parse(rawData.toString());
     } catch {
+      log(`invalid JSON payload from ip=${ip}`);
       send(ws, { type: 'error', reason: 'Invalid JSON payload', code: 'INVALID_MESSAGE' });
       return;
     }
 
     const parseResult = ClientMessageSchema.safeParse(payload);
     if (!parseResult.success) {
+      log(`malformed message payload from ip=${ip}: ${parseResult.error.message}`);
       send(ws, {
         type: 'error',
         reason: 'Malformed message format: ' + parseResult.error.message,
@@ -105,6 +113,7 @@ wss.on('connection', (ws, req) => {
 
     switch (msg.type) {
       case 'create': {
+        log(`create request from ip=${ip}`);
         if (!rateLimiter.consume(ip)) {
           send(ws, { type: 'error', reason: 'Rate limit exceeded, please wait', code: 'RATE_LIMITED' });
           return;
@@ -120,6 +129,7 @@ wss.on('connection', (ws, req) => {
       }
 
       case 'join': {
+        log(`join request from ip=${ip} code=${msg.code}`);
         if (!rateLimiter.consume(ip)) {
           send(ws, { type: 'error', reason: 'Rate limit exceeded, please wait', code: 'RATE_LIMITED' });
           return;
@@ -200,6 +210,7 @@ wss.on('connection', (ws, req) => {
 
       sessionStore.deleteSession(userSession.session.id);
     }
+    log(`websocket disconnected from ip=${ip}`);
   });
 });
 
@@ -221,6 +232,7 @@ keepAliveInterval.unref();
 function shutdown(): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  log('shutdown signal received; closing server');
   clearInterval(keepAliveInterval);
 
   const forceExitTimer = setTimeout(() => {
@@ -245,7 +257,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 server.listen(config.port, '0.0.0.0', () => {
-  console.log(`[signaling] QuickDrop signaling server online on port ${config.port}`);
-  console.log(`[signaling] Protocol v${PROTOCOL_VERSION}`);
-  console.log(`[signaling] Health check available at /health`);
+  log(`QuickDrop signaling server online on port ${config.port}`);
+  log(`Protocol v${PROTOCOL_VERSION}`);
+  log('Health check available at /health');
 });

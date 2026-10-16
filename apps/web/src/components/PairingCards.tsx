@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ShortCodeRegex } from '@quickdrop/protocol';
 import styles from './PairingCards.module.css';
 
 interface PairingCardsProps {
@@ -15,9 +16,13 @@ export const PairingCards: React.FC<PairingCardsProps> = ({
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = joinCode.trim();
-    if (trimmed) {
+    if (ShortCodeRegex.test(trimmed)) {
       onJoinSession(trimmed);
     }
+  };
+
+  const handleCodeChange = (value: string) => {
+    setJoinCode(value.replace(/\D/g, '').slice(0, 6));
   };
 
   return (
@@ -59,22 +64,25 @@ export const PairingCards: React.FC<PairingCardsProps> = ({
 
           <h2 className={styles.cardTitle}>Join with code</h2>
           <p className={styles.cardDesc}>
-            Enter an existing 6-character code to connect with your peer.
+            Enter the 6-digit code shown on the other device.
           </p>
 
           <form onSubmit={handleJoinSubmit} className={styles.joinForm}>
             <input
               type="text"
+              inputMode="numeric"
+              pattern="[1-9][0-9]{5}"
+              maxLength={6}
               className={styles.codeInput}
-              placeholder="e.g. 7-kiwi-lamp"
+              placeholder="e.g. 482193"
               value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
+              onChange={(e) => handleCodeChange(e.target.value)}
               aria-label="Session pairing code"
             />
             <button
               type="submit"
               className={styles.joinButton}
-              disabled={!joinCode.trim()}
+              disabled={!ShortCodeRegex.test(joinCode)}
             >
               Connect
             </button>

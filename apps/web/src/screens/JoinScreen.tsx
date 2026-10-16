@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ShortCodeRegex } from '@quickdrop/protocol';
 import styles from './Screens.module.css';
 
 interface JoinScreenProps {
@@ -20,7 +21,7 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputCode.trim() && !isConnecting) {
+    if (ShortCodeRegex.test(inputCode) && !isConnecting) {
       onJoin(inputCode.trim());
     }
   };
@@ -42,10 +43,13 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
         <form onSubmit={handleSubmit} className={styles.form}>
           <input
             type="text"
+            inputMode="numeric"
+            pattern="[1-9][0-9]{5}"
+            maxLength={6}
             className={styles.codeInput}
-            placeholder="e.g. 7-kiwi-lamp"
+            placeholder="e.g. 482193"
             value={inputCode}
-            onChange={(e) => setInputCode(e.target.value)}
+            onChange={(e) => setInputCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             disabled={isConnecting}
             autoFocus
           />
@@ -66,7 +70,7 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
           <button
             type="submit"
             className={styles.submitButton}
-            disabled={!inputCode.trim() || isConnecting}
+            disabled={!ShortCodeRegex.test(inputCode) || isConnecting}
           >
             {isConnecting ? 'Connecting...' : 'Connect'}
           </button>

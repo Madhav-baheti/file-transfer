@@ -1,4 +1,4 @@
-import { WORD_LIST } from '@quickdrop/protocol';
+import { randomInt } from 'node:crypto';
 import type { WebSocket } from 'ws';
 
 export interface ClientConnection {
@@ -16,6 +16,10 @@ export interface Session {
   expiresAt: number;
 }
 
+const MIN_SESSION_CODE = 100_000;
+const SESSION_CODE_COUNT = 900_000;
+const SESSION_CODE_MAX = MIN_SESSION_CODE + SESSION_CODE_COUNT;
+
 /**
  * In-memory session store with automatic TTL expiry (5 minutes).
  * Limits max 2 clients per session and auto-destroys on completion/disconnect.
@@ -32,24 +36,24 @@ export class SessionStore {
     setInterval(() => this.cleanupExpired(), 30 * 1000).unref();
   }
 
-  /**
-   * Generates a collision-resistant human-readable code:
-   * e.g., "42-kiwi-lamp"
-   */
+  /** Generates a unique six-digit numeric code for the active sessions. */
   public generateCode(): string {
-    const maxAttempts = 50;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const num = Math.floor(Math.random() * 999) + 1;
-      const w1 = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
-      const w2 = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
-      const code = `${num}-${w1}-${w2}`.toLowerCase();
-
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const code = String(randomInt(MIN_SESSION_CODE, SESSION_CODE_MAX));
       if (!this.sessionsByCode.has(code)) {
         return code;
       }
     }
-    // Fallback with timestamp suffix if collisions occur
-    return `${Math.floor(Math.random() * 999) + 1}-drop-${Date.now().toString(36)}`;
+
+    const start = randomInt(MIN_SESSION_CODE, SESSION_CODE_MAX);
+    for (let offset = 0; offset < SESSION_CODE_COUNT; offset++) {
+      const code = String(MIN_SESSION_CODE + ((start - MIN_SESSION_CODE + offset) % SESSION_CODE_COUNT));
+      if (!this.sessionsByCode.has(code)) {
+        return code;
+      }
+    }
+
+    throw new Error('No available session codes');
   }
 
   public createSession(client: { ws: WebSocket; ip: string }): Session {

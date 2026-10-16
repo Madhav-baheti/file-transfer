@@ -6,8 +6,7 @@ export const PROTOCOL_VERSION = '0.1.0';
 
 /**
  * 2048 words list (BIP-39 english wordlist subset or standard list)
- * Used to construct memorable human-readable short codes (e.g. "7-kiwi-lamp")
- * and SAS verification phrases (e.g. "apple river sun").
+ * Used for SAS verification phrases (e.g. "apple river sun").
  */
 export const WORD_LIST = [
   'apple', 'river', 'sun', 'kiwi', 'lamp', 'ocean', 'breeze', 'cloud', 'forest', 'mountain',
@@ -27,10 +26,9 @@ export const WORD_LIST = [
 // ─── Code Generator Helper ───────────────────────────────────────────────────
 
 /**
- * Validates and formats short codes:
- * Format: `<number 1-999>-<word>-<word>` (e.g., "7-kiwi-lamp")
+ * Validates six-digit numeric pairing codes.
  */
-export const ShortCodeRegex = /^[1-9]\d{0,2}-[a-z]+-[a-z]+$/i;
+export const ShortCodeRegex = /^[1-9]\d{5}$/;
 
 // ─── Client -> Server Messages ───────────────────────────────────────────────
 
@@ -40,7 +38,7 @@ export const CreateSessionMsgSchema = z.object({
 
 export const JoinSessionMsgSchema = z.object({
   type: z.literal('join'),
-  code: z.string().trim().toLowerCase(),
+  code: z.string().trim().regex(ShortCodeRegex),
 });
 
 export const SignalKindSchema = z.enum(['offer', 'answer', 'ice']);
@@ -71,7 +69,7 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export const CreatedSessionMsgSchema = z.object({
   type: z.literal('created'),
   sessionId: z.string(),
-  code: z.string(),
+  code: z.string().regex(ShortCodeRegex),
 });
 
 export const JoinedSessionMsgSchema = z.object({

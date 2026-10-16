@@ -49,7 +49,7 @@ Sending a file from a phone to a laptop (or to a friend's device) today means on
 
 ### 5.2 Pair by short code
 
-1. Device A shows a code such as `7-kiwi-lamp`.
+1. Device A shows a six-digit code such as `482193`.
 2. Device B opens the site, chooses **Join**, and types the code.
 3. Pairing completes as above.
 

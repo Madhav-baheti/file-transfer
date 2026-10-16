@@ -31,9 +31,9 @@ describe('sessionReducer', () => {
       role: 'initiator',
     };
 
-    const next = sessionReducer(waitingState, { type: 'CREATED', code: '7-kiwi-lamp' });
+    const next = sessionReducer(waitingState, { type: 'CREATED', code: '482193' });
     expect(next.status).toBe('waiting');
-    expect(next.code).toBe('7-kiwi-lamp');
+    expect(next.code).toBe('482193');
   });
 
   it('handles PROMPT_JOIN by entering connecting state with empty code as responder', () => {
@@ -46,11 +46,11 @@ describe('sessionReducer', () => {
   it('handles START_JOIN by entering connecting state as responder', () => {
     const next = sessionReducer(initialSessionState, {
       type: 'START_JOIN',
-      code: '7-kiwi-lamp',
+      code: '482193',
     });
     expect(next.status).toBe('connecting');
     expect(next.role).toBe('responder');
-    expect(next.code).toBe('7-kiwi-lamp');
+    expect(next.code).toBe('482193');
   });
 
   it('handles PEER_FOUND and transitions to connecting for initiator', () => {
@@ -58,7 +58,7 @@ describe('sessionReducer', () => {
       ...initialSessionState,
       status: 'waiting',
       role: 'initiator',
-      code: '7-kiwi-lamp',
+      code: '482193',
     };
 
     const next = sessionReducer(waitingState, { type: 'PEER_FOUND' });
@@ -70,7 +70,7 @@ describe('sessionReducer', () => {
       ...initialSessionState,
       status: 'connecting',
       role: 'initiator',
-      code: '7-kiwi-lamp',
+      code: '482193',
     };
 
     const next = sessionReducer(connectingState, { type: 'CONNECTED' });
@@ -153,7 +153,7 @@ describe('sessionReducer', () => {
       ...initialSessionState,
       status: 'connected',
       role: 'initiator',
-      code: '7-kiwi-lamp',
+      code: '482193',
       error: 'some error',
     };
 
@@ -167,7 +167,7 @@ describe('sessionReducer', () => {
     const dirtyState: SessionState = {
       status: 'connected',
       role: 'responder',
-      code: '7-kiwi-lamp',
+      code: '482193',
       error: 'some error',
       messages: [{ id: '1', sender: 'self', text: 'hi', timestamp: '12:00' }],
     };

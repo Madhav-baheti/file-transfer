@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { toBase64Url } from '../src/lib/secureChannel';
 import { buildPairingUrl, parsePairingFragment } from '../src/lib/pairingLink';
 
-const code = '7-kiwi-lamp';
+const code = '482193';
 const psk = Uint8Array.from({ length: 16 }, (_, index) => index * 13);
 const validFragment = `#s=${toBase64Url(psk)}&c=${encodeURIComponent(code)}`;
 

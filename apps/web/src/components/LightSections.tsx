@@ -16,7 +16,7 @@ export const LightSections: React.FC = () => {
             <span className={styles.stepNumber}>01</span>
             <h3 className={styles.cardTitle}>Create session</h3>
             <p className={styles.cardText}>
-              Click create to instantly reserve a direct pairing channel and obtain a temporary 6-character code.
+              Click create to instantly reserve a direct pairing channel and obtain a temporary 6-digit code.
             </p>
           </div>
 

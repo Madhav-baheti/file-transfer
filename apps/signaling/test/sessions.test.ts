@@ -19,18 +19,25 @@ describe('SessionStore', () => {
     store = new SessionStore(5 * 60 * 1000);
   });
 
-  it('creates a session with a unique 1-999-word-word code', () => {
+  it('creates a session with a unique six-digit numeric code', () => {
     const ws = createMockSocket();
     const session = store.createSession({ ws, ip: '127.0.0.1' });
 
     expect(session.id).toBeDefined();
-    expect(session.code).toMatch(/^[1-9]\d{0,2}-[a-z]+-[a-z]+$/);
+    expect(session.code).toMatch(/^[1-9]\d{5}$/);
     expect(session.initiator.ws).toBe(ws);
     expect(session.responder).toBeUndefined();
 
     // Verify lookup by code and id
     expect(store.getByCode(session.code)).toBe(session);
     expect(store.getById(session.id)).toBe(session);
+  });
+
+  it('generates a different code for each active session', () => {
+    const first = store.createSession({ ws: createMockSocket(), ip: '127.0.0.1' });
+    const second = store.createSession({ ws: createMockSocket(), ip: '127.0.0.1' });
+
+    expect(second.code).not.toBe(first.code);
   });
 
   it('allows exactly one responder to join a session', () => {

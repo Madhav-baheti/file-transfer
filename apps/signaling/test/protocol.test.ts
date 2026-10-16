@@ -7,18 +7,20 @@ import {
 
 describe('Protocol Message Validation', () => {
   it('validates short code format', () => {
-    expect(ShortCodeRegex.test('7-kiwi-lamp')).toBe(true);
-    expect(ShortCodeRegex.test('42-apple-river')).toBe(true);
-    expect(ShortCodeRegex.test('999-ocean-sun')).toBe(true);
+    expect(ShortCodeRegex.test('100000')).toBe(true);
+    expect(ShortCodeRegex.test('482193')).toBe(true);
+    expect(ShortCodeRegex.test('999999')).toBe(true);
 
-    expect(ShortCodeRegex.test('0-kiwi-lamp')).toBe(false);
-    expect(ShortCodeRegex.test('1000-kiwi-lamp')).toBe(false);
-    expect(ShortCodeRegex.test('invalid-code')).toBe(false);
+    expect(ShortCodeRegex.test('000001')).toBe(false);
+    expect(ShortCodeRegex.test('99999')).toBe(false);
+    expect(ShortCodeRegex.test('1000000')).toBe(false);
+    expect(ShortCodeRegex.test('12a456')).toBe(false);
   });
 
   it('validates client messages', () => {
     expect(ClientMessageSchema.safeParse({ type: 'create' }).success).toBe(true);
-    expect(ClientMessageSchema.safeParse({ type: 'join', code: '7-kiwi-lamp' }).success).toBe(true);
+    expect(ClientMessageSchema.safeParse({ type: 'join', code: '482193' }).success).toBe(true);
+    expect(ClientMessageSchema.safeParse({ type: 'join', code: '7-kiwi-lamp' }).success).toBe(false);
     expect(
       ClientMessageSchema.safeParse({
         type: 'signal',
@@ -38,7 +40,7 @@ describe('Protocol Message Validation', () => {
       ServerMessageSchema.safeParse({
         type: 'created',
         sessionId: 'test-session-id',
-        code: '7-kiwi-lamp',
+        code: '482193',
       }).success
     ).toBe(true);
 

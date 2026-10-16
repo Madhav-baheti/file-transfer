@@ -15,7 +15,7 @@
 | NAT traversal | Public STUN in v1; coturn TURN in P1 |
 | Key exchange | Ephemeral ECDH P-256 via Web Crypto, keys bound to DTLS fingerprints |
 | Payload encryption | AES-256-GCM via Web Crypto, per-chunk nonce |
-| Pairing | QR (high-entropy secret in URL fragment) + short code (rendezvous) + SAS verification |
+| Pairing | QR (high-entropy secret in URL fragment) + 6-digit numeric code (rendezvous) + SAS verification |
 | QR generate / scan | `qrcode` / `qr-scanner` |
 | Large file saving | File System Access API (Chromium), Blob fallback elsewhere |
 | PWA | `vite-plugin-pwa` |
@@ -139,7 +139,7 @@ Use only the browser's **Web Crypto API** (`crypto.subtle`) plus the platform CS
 4. **Payload encryption.** AES-256-GCM per chunk. Nonce = 96 bits built from a random per-direction prefix plus a counter, never reused with the same key. Include the file id and chunk index as additional authenticated data.
 5. **SAS verification.** Derive a short authentication string (for example three words from a 2048-word list) from the same transcript hash and display it on both devices. For code-based pairing, the app must require the user to confirm the words match before enabling transfers. For QR pairing it is shown but optional.
 6. **Ephemeral only.** Keys exist in memory for the session. Nothing is written to `localStorage`, `IndexedDB`, cookies, or disk.
-7. **Short code format:** a number 1 to 999 plus two words from the 2048-word list (about 32 bits), for example `7-kiwi-lamp`. Single-use and 5-minute expiry. Online guessing is limited by the server rate limit.
+7. **Short code format:** a six-digit number from 100000 to 999999. Single-use and 5-minute expiry. Online guessing is limited by the server rate limit.
 
 ## 8. Testing and Quality
 

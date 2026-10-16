@@ -62,7 +62,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
   return (
     <div className={styles.connectedCard}>
       <div className={styles.topBar}>
-        <div className={styles.connectedBadge}>
+        <div className={styles.connectedBadge} role="status" aria-live="polite">
           <div className={styles.onlineDot} />
           <span>Connected ({role === 'initiator' ? 'Host' : 'Peer'})</span>
         </div>
@@ -79,7 +79,7 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         />
       )}
       {verification.confirmed && (
-        <span className={styles.connectedBadge}>
+        <span className={styles.connectedBadge} role="status" aria-live="polite">
           {verification.required ? `Verified · ${verification.sas}` : 'Verified by QR code'}
         </span>
       )}
@@ -182,7 +182,13 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
       </div>
 
       {/* ─── Text Chat Section ─────────────────────────────────────────── */}
-      <div className={styles.chatArea}>
+      <div
+        className={styles.chatArea}
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {messages.length === 0 ? (
           <div className={styles.emptyNotice}>
             <p>Peer-to-peer data channel is connected!</p>
@@ -203,10 +209,14 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
         )}
       </div>
 
-      {sendError && <p className={styles.errorMessage}>{sendError}</p>}
+      {sendError && <p className={styles.errorMessage} role="alert">{sendError}</p>}
 
       <form onSubmit={handleSend} className={styles.chatInputRow}>
+        <label className={styles.srOnly} htmlFor="chat-message">
+          Message to send
+        </label>
         <input
+          id="chat-message"
           type="text"
           className={styles.textInput}
           placeholder="Type a message (max 4000 chars)..."

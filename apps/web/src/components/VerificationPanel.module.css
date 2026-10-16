@@ -62,13 +62,12 @@
 
 .primaryButton {
   background: var(--color-accent-mint);
-  color: var(--color-text-heading);
+  color: var(--color-text-on-accent);
 }
 
 .outlineButton {
   background: var(--overlay-light-08);
   color: var(--color-text-on-hero);
-  box-shadow: var(--focus-ring-on-hero);
 }
 
 .primaryButton:focus-visible,

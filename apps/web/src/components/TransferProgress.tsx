@@ -61,7 +61,16 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
         </span>
       </div>
 
-      <div className={styles.track} role="progressbar" aria-valuenow={percentage} aria-valuemin={0} aria-valuemax={100}>
+      <div
+        className={styles.track}
+        role="progressbar"
+        aria-label={`${direction === 'sender' ? 'Sending' : 'Receiving'} ${filename}`}
+        aria-valuenow={percentage}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuetext={`${percentage}% complete`}
+        aria-live="off"
+      >
         <div
           className={styles.fill}
           style={{
@@ -96,7 +105,7 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
       )}
 
       {status === 'awaiting_confirmation' && (
-        <div className={styles.statusIndicator}>
+        <div className={styles.statusIndicator} role="status" aria-live="polite">
           <span aria-hidden="true">⏳</span>
           <span>Sent, waiting for the other device to verify</span>
         </div>
@@ -110,21 +119,21 @@ export const TransferProgress: React.FC<TransferProgressProps> = ({
       )}
 
       {status === 'completed' && (
-        <div className={styles.statusIndicator}>
+        <div className={styles.statusIndicator} role="status" aria-live="polite">
           <span className={styles.checkIcon} aria-hidden="true">✓</span>
           <span>{direction === 'sender' ? 'Delivered and verified' : 'Received and verified'}</span>
         </div>
       )}
 
       {status === 'failed' && (
-        <div className={styles.statusIndicator}>
+        <div className={styles.statusIndicator} role="status" aria-live="polite">
           <span className={styles.errorIcon} aria-hidden="true">✕</span>
           <span>{error || 'Transfer failed'}</span>
         </div>
       )}
 
       {status === 'cancelled' && (
-        <div className={styles.statusIndicator}>
+        <div className={styles.statusIndicator} role="status" aria-live="polite">
           <span>Transfer cancelled</span>
         </div>
       )}

@@ -19,8 +19,8 @@ export function QRDisplay({ value, size = 240, label }: QRDisplayProps) {
     if (!canvas) return;
 
     const computed = getComputedStyle(document.documentElement);
-    const dark = computed.getPropertyValue('--color-accent-ink').trim();
-    const light = computed.getPropertyValue('--color-frame').trim();
+    const dark = computed.getPropertyValue('--color-qr-foreground').trim();
+    const light = computed.getPropertyValue('--color-qr-background').trim();
 
     QRCode.toCanvas(canvas, value, {
       errorCorrectionLevel: 'M',

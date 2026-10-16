@@ -68,7 +68,11 @@ export const PairingCards: React.FC<PairingCardsProps> = ({
           </p>
 
           <form onSubmit={handleJoinSubmit} className={styles.joinForm}>
+            <label className={styles.srOnly} htmlFor="pairing-code">
+              Session pairing code
+            </label>
             <input
+              id="pairing-code"
               type="text"
               inputMode="numeric"
               pattern="[1-9][0-9]{5}"
@@ -77,7 +81,7 @@ export const PairingCards: React.FC<PairingCardsProps> = ({
               placeholder="e.g. 482193"
               value={joinCode}
               onChange={(e) => handleCodeChange(e.target.value)}
-              aria-label="Session pairing code"
+              required
             />
             <button
               type="submit"

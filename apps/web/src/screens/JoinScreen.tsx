@@ -41,7 +41,11 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
+          <label className={styles.srOnly} htmlFor="join-session-code">
+            Session pairing code
+          </label>
           <input
+            id="join-session-code"
             type="text"
             inputMode="numeric"
             pattern="[1-9][0-9]{5}"
@@ -50,11 +54,18 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
             placeholder="e.g. 482193"
             value={inputCode}
             onChange={(e) => setInputCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            required
             disabled={isConnecting}
             autoFocus
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'join-session-code-error' : undefined}
           />
 
-          {error && <p className={styles.errorMessage}>{error}</p>}
+          {error && (
+            <p id="join-session-code-error" className={styles.errorMessage} role="alert">
+              {error}
+            </p>
+          )}
 
           {isConnecting && (
             <div className={styles.statusBox} role="status" aria-live="polite">

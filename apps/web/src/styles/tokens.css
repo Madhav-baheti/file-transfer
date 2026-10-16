@@ -7,6 +7,8 @@
  */
 
 :root {
+  color-scheme: light;
+
   /* ── Surfaces ───────────────────────────────────────────── */
   --color-backdrop: #a8acb1;      /* page background behind the frame */
   --color-frame: #ffffff;         /* big rounded frame around the hero */
@@ -20,6 +22,9 @@
   --color-text-on-hero-muted: #eef0f3; /* keep >= 4.5:1 on --color-hero */
   --color-text-heading: #040026;
   --color-text-body: #54535a;
+  --color-text-on-accent: #040026;
+  --color-action-background: var(--color-frame);
+  --color-action-foreground: var(--color-hero);
 
   /* ── Accents (taken from the reference's tile patterns) ─── */
   --color-accent-red: #ff4033;
@@ -36,6 +41,9 @@
   --color-danger: var(--color-accent-red);
   --color-border-on-hero: rgba(255, 255, 255, 0.55);
   --color-border-light: rgba(4, 0, 38, 0.1);
+  --color-dialog-scrim: rgba(4, 0, 38, 0.72);
+  --color-qr-background: #ffffff;
+  --color-qr-foreground: #101812;
   --focus-ring: 0 0 0 3px rgba(77, 78, 141, 0.55);
   --focus-ring-on-hero: 0 0 0 3px rgba(255, 255, 255, 0.8);
   --overlay-light-08: rgba(255, 255, 255, 0.08);
@@ -99,6 +107,84 @@
   --dur-fast: 150ms;
   --dur: 300ms;
   --dur-slow: 600ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --color-backdrop: #111820;
+    --color-frame: #1b2631;
+    --color-hero: #293745;
+    --color-hero-card: #354656;
+    --color-section: #202c38;
+    --color-card: #2b3947;
+
+    --color-text-on-hero: #ffffff;
+    --color-text-on-hero-muted: #e1e8ee;
+    --color-text-heading: #f3f6f9;
+    --color-text-body: #d5dce3;
+    --color-action-background: var(--color-accent-mint);
+    --color-action-foreground: var(--color-text-on-accent);
+
+    --color-accent-red: #ff7168;
+    --color-accent-orange: #ffad73;
+    --color-accent-indigo: #a8a9e8;
+    --color-accent-mint: #9bc8b1;
+    --color-accent-cream: #ded8ca;
+    --color-accent-brown: #d5b7b1;
+    --color-accent-ink: #101812;
+    --color-accent-tan: #e0b38d;
+
+    --color-success: #9bc8b1;
+    --color-danger: #ff7168;
+    --color-border-on-hero: rgba(255, 255, 255, 0.6);
+    --color-border-light: rgba(225, 232, 238, 0.16);
+    --color-dialog-scrim: rgba(0, 0, 0, 0.76);
+    --focus-ring: 0 0 0 3px rgba(168, 169, 232, 0.8);
+    --focus-ring-on-hero: 0 0 0 3px rgba(255, 255, 255, 0.9);
+    --shadow-tile: 0 20px 40px rgba(0, 0, 0, 0.38);
+    --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.28);
+    --shadow-inner-card: 0 12px 28px rgba(0, 0, 0, 0.3);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-backdrop: #111820;
+  --color-frame: #1b2631;
+  --color-hero: #293745;
+  --color-hero-card: #354656;
+  --color-section: #202c38;
+  --color-card: #2b3947;
+
+  --color-text-on-hero: #ffffff;
+  --color-text-on-hero-muted: #e1e8ee;
+  --color-text-heading: #f3f6f9;
+  --color-text-body: #d5dce3;
+  --color-action-background: var(--color-accent-mint);
+  --color-action-foreground: var(--color-text-on-accent);
+
+  --color-accent-red: #ff7168;
+  --color-accent-orange: #ffad73;
+  --color-accent-indigo: #a8a9e8;
+  --color-accent-mint: #9bc8b1;
+  --color-accent-cream: #ded8ca;
+  --color-accent-brown: #d5b7b1;
+  --color-accent-ink: #101812;
+  --color-accent-tan: #e0b38d;
+
+  --color-success: #9bc8b1;
+  --color-danger: #ff7168;
+  --color-border-on-hero: rgba(255, 255, 255, 0.6);
+  --color-border-light: rgba(225, 232, 238, 0.16);
+  --color-dialog-scrim: rgba(0, 0, 0, 0.76);
+  --focus-ring: 0 0 0 3px rgba(168, 169, 232, 0.8);
+  --focus-ring-on-hero: 0 0 0 3px rgba(255, 255, 255, 0.9);
+  --shadow-tile: 0 20px 40px rgba(0, 0, 0, 0.38);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --shadow-inner-card: 0 12px 28px rgba(0, 0, 0, 0.3);
 }
 
 @media (prefers-reduced-motion: reduce) {

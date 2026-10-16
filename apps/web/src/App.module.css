@@ -21,6 +21,31 @@
   margin: 0 auto;
 }
 
+.updateNotice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-section);
+  color: var(--color-text-body);
+  text-align: center;
+  font-size: var(--text-small);
+}
+
+.updateButton {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-button);
+  background: var(--color-accent-mint);
+  color: var(--color-text-on-accent);
+  font-weight: var(--weight-semibold);
+}
+
+.updateButton:disabled {
+  opacity: 0.65;
+}
+
 /* ─── Hero Panel ─────────────────────────────────────────────── */
 
 .heroPanel {
@@ -122,8 +147,8 @@
 }
 
 .actionButton {
-  background: var(--color-frame);
-  color: var(--color-hero);
+  background: var(--color-action-background);
+  color: var(--color-action-foreground);
   border-radius: var(--radius-button);
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-small);

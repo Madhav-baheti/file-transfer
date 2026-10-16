@@ -1,3 +1,14 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-dialog-scrim);
+}
+
 .card {
   background: var(--color-hero-card);
   border-radius: var(--radius-card);
@@ -9,6 +20,7 @@
   color: var(--color-text-on-hero);
   font-family: var(--font-sans);
   width: 100%;
+  max-width: 520px;
   box-sizing: border-box;
 }
 
@@ -54,7 +66,7 @@
 .acceptButton {
   flex: 1;
   background: var(--color-accent-mint);
-  color: var(--color-text-heading);
+  color: var(--color-text-on-accent);
   border: none;
   border-radius: var(--radius-button);
   padding: var(--space-3) var(--space-4);

@@ -30,7 +30,7 @@ const SIGNALING_UNREACHABLE_MESSAGE =
 const VERIFICATION_FAILED_MESSAGE =
   'Verification failed. The digits did not match, so the connection may not be secure. Nothing was sent.';
 const PAIRING_MODE_MISMATCH_MESSAGE =
-  'The devices could not verify the connection. Please try again using the QR code or six-digit code.';
+  'The two devices could not agree on a secure key. If one device used the QR link and the other typed the code, start again: create the session in code-only mode, or join with the QR link. If that was not the case, someone may be interfering with the connection.';
 
 interface VerificationState {
   sas: string;
@@ -54,13 +54,21 @@ export function App() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [initialPairing] = useState(() => parsePairingFragment(window.location.hash));
   const [signalingPending, setSignalingPending] = useState(false);
+  const [themeOverride, setThemeOverride] = useState<boolean | null>(null);
+  const [systemPrefersDark, setSystemPrefersDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+  );
+  const [needRefresh, setNeedRefresh] = useState(false);
+  const [updateError, setUpdateError] = useState(false);
   const [verification, setVerification] = useState<VerificationState>(
     INITIAL_VERIFICATION_STATE,
   );
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
   const pairingSecretRef = useRef<Uint8Array | null>(null);
+  const connectionAttemptRef = useRef(0);
 
   // Active sender and receiver instances
   const senderRef = useRef<FileSender | null>(null);
@@ -73,8 +81,68 @@ export function App() {
   const transferStatusRef = useRef(transferState.status);
   transferStatusRef.current = transferState.status;
 
+  const transferOfferRef = useRef(transferState.offer);
+  transferOfferRef.current = transferState.offer;
+
   const verificationRef = useRef(verification);
   verificationRef.current = verification;
+
+  const isDark = themeOverride ?? systemPrefersDark;
+  const isSessionActive =
+    state.status === 'waiting' ||
+    state.status === 'connecting' ||
+    state.status === 'connected' ||
+    transferState.status === 'offered' ||
+    transferState.status === 'transferring' ||
+    transferState.status === 'verifying' ||
+    transferState.status === 'awaiting_confirmation';
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const updateSystemTheme = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
+    mediaQuery.addEventListener('change', updateSystemTheme);
+    return () => mediaQuery.removeEventListener('change', updateSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    if (themeOverride === null) {
+      document.documentElement.removeAttribute('data-theme');
+      return;
+    }
+    document.documentElement.dataset.theme = themeOverride ? 'dark' : 'light';
+  }, [themeOverride]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .then((registration) => {
+        registrationRef.current = registration;
+        setUpdateError(false);
+
+        const updateReady = () => {
+          if (!isSessionActive && !registration.installing) {
+            setNeedRefresh(true);
+          }
+        };
+
+        registration.addEventListener('updatefound', () => {
+          const installingWorker = registration.installing;
+          if (!installingWorker) return;
+          installingWorker.addEventListener('statechange', () => {
+            if (installingWorker.state === 'installed') {
+              updateReady();
+            }
+          });
+        });
+
+        if (registration.waiting) {
+          setNeedRefresh(true);
+        }
+      })
+      .catch(() => setUpdateError(true));
+  }, [isSessionActive]);
 
   // Timers created via createConnectionTimer
   const connectionTimerRef = useRef<ConnectionTimer | null>(null);
@@ -82,6 +150,7 @@ export function App() {
   const transferConfirmationTimerRef = useRef<ConnectionTimer | null>(null);
 
   const cleanupConnections = () => {
+    connectionAttemptRef.current += 1;
     connectionTimerRef.current?.clear();
     disconnectGraceTimerRef.current?.clear();
     transferConfirmationTimerRef.current?.clear();
@@ -114,6 +183,23 @@ export function App() {
     cleanupConnections();
     setSendError(null);
     actions.reset();
+  };
+
+  const handleToggleTheme = () => {
+    setThemeOverride(!isDark);
+  };
+
+  const handleApplyUpdate = async () => {
+    if (!registrationRef.current) return;
+    try {
+      await registrationRef.current.update();
+      if (registrationRef.current.waiting) {
+        registrationRef.current.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+      window.location.reload();
+    } catch {
+      setUpdateError(true);
+    }
   };
 
   const handleSecureReady = (info: { sas: string; requiresSasConfirmation: boolean }) => {
@@ -316,9 +402,12 @@ export function App() {
     }
   };
 
-  const setupPeerConnectionEvents = () => {
+  const setupPeerConnectionEvents = (attempt: number) => {
+    const isCurrentAttempt = () => connectionAttemptRef.current === attempt;
+
     return {
       onDataChannelClose: () => {
+        if (!isCurrentAttempt()) return;
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -335,9 +424,11 @@ export function App() {
         handleDisconnect();
       },
       onMessage: (data: string | ArrayBuffer) => {
+        if (!isCurrentAttempt()) return;
         handleDataChannelMessage(data);
       },
       onConnectionStateChange: (pcState: RTCPeerConnectionState) => {
+        if (!isCurrentAttempt()) return;
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -360,6 +451,7 @@ export function App() {
         }
       },
       onError: (err: unknown) => {
+        if (!isCurrentAttempt()) return;
         if (
           statusRef.current === 'idle' ||
           statusRef.current === 'closed' ||
@@ -367,7 +459,7 @@ export function App() {
         ) {
           return;
         }
-        console.error('[WebRTC Error]', err);
+        console.error('[WebRTC Error]');
         cleanupConnections();
         actions.fail(
           err instanceof SecureChannelError
@@ -383,6 +475,7 @@ export function App() {
   // ─── 1. Initiator: Create Session Flow ────────────────────────────────────────
   const handleStartCreate = async () => {
     cleanupConnections();
+    const attempt = connectionAttemptRef.current;
     setSignalingPending(false);
     pairingSecretRef.current = generatePairingSecret();
     setSendError(null);
@@ -391,21 +484,25 @@ export function App() {
     const sig = new SignalingClient();
     signalingRef.current = sig;
     sig.onPending(() => {
-      if (signalingRef.current === sig) setSignalingPending(true);
+      if (connectionAttemptRef.current === attempt && signalingRef.current === sig) {
+        setSignalingPending(true);
+      }
     });
 
     try {
       await sig.connect();
+      if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
       setSignalingPending(false);
 
       sig.onMessage((msg) => {
+        if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
         if (msg.type === 'created') {
           actions.created(msg.code);
         } else if (msg.type === 'peer-joined') {
           actions.peerFound();
           connectionTimerRef.current?.start();
 
-          const callbacks = setupPeerConnectionEvents();
+          const callbacks = setupPeerConnectionEvents(attempt);
 
           const peer = new PeerManager({
             signaling: sig,
@@ -414,13 +511,16 @@ export function App() {
               msg.pairingMethod === 'qr'
                 ? pairingSecretRef.current ?? undefined
                 : undefined,
-            onSecureReady: (info) => handleSecureReady(info),
+            onSecureReady: (info) => {
+              if (connectionAttemptRef.current === attempt) handleSecureReady(info);
+            },
             ...callbacks,
           });
 
           peerRef.current = peer;
-          peer.startOffer().catch((err) => {
-            console.error('[WebRTC startOffer Error]', err);
+          peer.startOffer().catch(() => {
+            if (connectionAttemptRef.current !== attempt || peerRef.current !== peer) return;
+            console.error('[WebRTC startOffer Error]');
             cleanupConnections();
             actions.fail('Failed to create WebRTC offer');
           });
@@ -433,6 +533,7 @@ export function App() {
       });
 
       sig.onDisconnect(() => {
+        if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
         if (statusRef.current === 'waiting' || statusRef.current === 'connecting') {
           cleanupConnections();
           actions.fail('Disconnected from signaling server');
@@ -440,12 +541,9 @@ export function App() {
       });
 
       sig.send({ type: 'create' });
-    } catch (err) {
-      if (signalingRef.current !== sig) return;
-      console.warn(
-        '[signaling] connection failed:',
-        err instanceof Error ? err.message : 'unknown error',
-      );
+    } catch {
+      if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
+      console.warn('[signaling] connection failed');
       setSignalingPending(false);
       cleanupConnections();
       actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
@@ -455,6 +553,7 @@ export function App() {
   // ─── 2. Responder: Join Session Flow ──────────────────────────────────────────
   const handleStartJoin = async (inputCode: string, psk?: Uint8Array) => {
     cleanupConnections();
+    const attempt = connectionAttemptRef.current;
     setSignalingPending(false);
     pairingSecretRef.current = psk ?? null;
     setSendError(null);
@@ -463,24 +562,30 @@ export function App() {
     const sig = new SignalingClient();
     signalingRef.current = sig;
     sig.onPending(() => {
-      if (signalingRef.current === sig) setSignalingPending(true);
+      if (connectionAttemptRef.current === attempt && signalingRef.current === sig) {
+        setSignalingPending(true);
+      }
     });
 
     try {
       await sig.connect();
+      if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
       setSignalingPending(false);
 
       sig.onMessage((msg) => {
+        if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
         if (msg.type === 'joined') {
           connectionTimerRef.current?.start();
 
-          const callbacks = setupPeerConnectionEvents();
+          const callbacks = setupPeerConnectionEvents(attempt);
 
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: false,
             psk: pairingSecretRef.current ?? undefined,
-            onSecureReady: (info) => handleSecureReady(info),
+            onSecureReady: (info) => {
+              if (connectionAttemptRef.current === attempt) handleSecureReady(info);
+            },
             ...callbacks,
           });
 
@@ -494,6 +599,7 @@ export function App() {
       });
 
       sig.onDisconnect(() => {
+        if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
         if (statusRef.current === 'connecting') {
           cleanupConnections();
           actions.fail('Disconnected from signaling server');
@@ -505,12 +611,9 @@ export function App() {
         code: inputCode,
         pairingMethod: psk ? 'qr' : 'code',
       });
-    } catch (err) {
-      if (signalingRef.current !== sig) return;
-      console.warn(
-        '[signaling] connection failed:',
-        err instanceof Error ? err.message : 'unknown error',
-      );
+    } catch {
+      if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
+      console.warn('[signaling] connection failed');
       setSignalingPending(false);
       cleanupConnections();
       actions.fail(SIGNALING_UNREACHABLE_MESSAGE);
@@ -582,6 +685,8 @@ export function App() {
   const handleAcceptTransfer = async () => {
     if (!transferState.offer || !peerRef.current) return;
     const offer = transferState.offer;
+    const peer = peerRef.current;
+    const attempt = connectionAttemptRef.current;
 
     let writableStream: WritableStreamDefaultWriter<Uint8Array> | null = null;
 
@@ -601,12 +706,28 @@ export function App() {
             id: offer.id,
             reason: 'User cancelled save dialog',
           });
-          peerRef.current.sendData(declineMsg);
-          transferActions.resetTransfer();
+          if (peerRef.current === peer && connectionAttemptRef.current === attempt) {
+            peer.sendData(declineMsg);
+            if (
+              transferStatusRef.current === 'offered' &&
+              transferOfferRef.current?.id === offer.id
+            ) {
+              transferActions.resetTransfer();
+            }
+          }
           return;
         }
-        console.warn('showSaveFilePicker failed or unsupported, falling back to Blob:', err);
+        console.warn('showSaveFilePicker failed; using the in-memory download fallback');
       }
+    }
+
+    if (
+      peerRef.current !== peer ||
+      connectionAttemptRef.current !== attempt ||
+      transferStatusRef.current !== 'offered' ||
+      transferOfferRef.current?.id !== offer.id
+    ) {
+      return;
     }
 
     transferActions.acceptTransfer();
@@ -675,7 +796,7 @@ export function App() {
       type: 'file-accept',
       id: offer.id,
     });
-    peerRef.current.sendData(acceptMsg);
+    peer.sendData(acceptMsg);
   };
 
   const handleDeclineTransfer = () => {
@@ -733,9 +854,9 @@ export function App() {
       const encoded = PlaintextTransportCodec.encodeControl(chatMsg);
       peerRef.current.sendData(encoded);
       actions.addMessage('self', trimmed);
-    } catch (err) {
-      console.error('[Send Message Error]', err);
-      setSendError('Failed to send message: ' + (err instanceof Error ? err.message : String(err)));
+    } catch {
+      console.error('[Send Message Error]');
+      setSendError('Failed to send message. Check the connection and try again.');
     }
   };
 
@@ -757,10 +878,34 @@ export function App() {
 
   return (
     <div className={styles.pageBackdrop}>
-      <div className={styles.frame}>
+      <main className={styles.frame}>
+        {(needRefresh || updateError) && (
+          <div className={styles.updateNotice} role={updateError ? 'alert' : 'status'}>
+            {updateError ? (
+              <span>Could not check for app updates. The app is still available to use.</span>
+            ) : isSessionActive ? (
+              <span>An app update is ready. It can be installed after this session ends.</span>
+            ) : (
+              <>
+                <span>An app update is ready to install.</span>
+                <button
+                  type="button"
+                  className={styles.updateButton}
+                  onClick={handleApplyUpdate}
+                >
+                  Refresh to update
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <section id="hero" className={styles.heroPanel}>
           <DecorativeTiles />
-          <NavBar onStartSession={() => handleStartCreate()} />
+          <NavBar
+            onStartSession={() => handleStartCreate()}
+            isDark={isDark}
+            onToggleTheme={handleToggleTheme}
+          />
 
           <header className={styles.heroHeader}>
             <h1 className={styles.headline}>Send big files, skip the cloud.</h1>
@@ -809,7 +954,7 @@ export function App() {
                     ⚡
                   </div>
                   <h2 className={styles.statusTitle}>Connecting...</h2>
-                  <p className={styles.statusText}>
+                  <p className={styles.statusText} role="status" aria-live="polite">
                     Peer joined. Establishing direct WebRTC connection...
                   </p>
                   <button
@@ -858,16 +1003,29 @@ export function App() {
                       ? 'Connection Failed'
                       : 'Session Closed'}
                   </h2>
-                  <p className={styles.statusText}>
+                  <p
+                    className={styles.statusText}
+                    role={state.status === 'failed' ? 'alert' : 'status'}
+                    aria-live={state.status === 'failed' ? 'assertive' : 'polite'}
+                  >
                     {state.error || 'The session was closed.'}
                   </p>
-                  {state.status === 'failed' && state.error === SIGNALING_UNREACHABLE_MESSAGE ? (
+                  {state.status === 'failed' &&
+                  (state.error === SIGNALING_UNREACHABLE_MESSAGE ||
+                    state.error === 'Connection timed out' ||
+                    state.error === 'Disconnected from signaling server') ? (
                     <button
                       className={styles.actionButton}
                       onClick={
                         state.role === 'initiator'
                           ? () => handleStartCreate()
-                          : () => handleStartJoin(state.code ?? '')
+                          : () =>
+                              handleStartJoin(
+                                state.code ?? '',
+                                initialPairing?.code === state.code
+                                  ? initialPairing.psk
+                                  : undefined,
+                              )
                       }
                       type="button"
                     >
@@ -889,7 +1047,7 @@ export function App() {
         </section>
 
         <LightSections />
-      </div>
+      </main>
     </div>
   );
 }

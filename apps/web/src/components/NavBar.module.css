@@ -75,6 +75,36 @@
   gap: var(--space-3);
 }
 
+.themeButton {
+  width: var(--space-7);
+  height: var(--space-7);
+  border: 1px solid var(--color-border-on-hero);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-on-hero);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.themeButton:hover {
+  background: var(--overlay-light-12);
+}
+
+.themeButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-on-hero);
+}
+
+.themeIcon {
+  width: var(--space-4);
+  height: var(--space-4);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .mintIconButton {
   width: var(--space-7);
   height: var(--space-7);
@@ -83,7 +113,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-heading);
+  color: var(--color-text-on-accent);
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
@@ -100,7 +130,7 @@
 .iconSvg {
   width: var(--space-4);
   height: var(--space-4);
-  stroke: var(--color-text-heading);
+  stroke: currentColor;
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;

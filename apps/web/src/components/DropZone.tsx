@@ -77,10 +77,10 @@ export const DropZone: React.FC<DropZoneProps> = ({
           </svg>
         </div>
         <span className={styles.label}>
-          {disabled ? 'Connect a device first' : 'Add your files'}
+          {disabled ? 'Verify the connection first' : 'Add your files'}
         </span>
         <span className={styles.hint}>
-          {disabled ? 'Waiting for connection' : 'Drop a file or browse (Up to 20 GB)'}
+          {disabled ? 'Confirm the digits above before sending a file' : 'Drop a file or browse (Up to 20 GB)'}
         </span>
       </button>
     </div>

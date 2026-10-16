@@ -955,7 +955,9 @@ export function App() {
                   </div>
                   <h2 className={styles.statusTitle}>Connecting...</h2>
                   <p className={styles.statusText} role="status" aria-live="polite">
-                    Peer joined. Establishing direct WebRTC connection...
+                    {signalingPending
+                      ? 'Waking up the pairing service. On the free Render plan this can take up to a minute.'
+                      : 'Peer joined. Establishing direct WebRTC connection...'}
                   </p>
                   <button
                     className={styles.outlinedActionButton}

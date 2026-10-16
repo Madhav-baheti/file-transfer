@@ -16,6 +16,10 @@ const rateLimiter = new TokenBucketRateLimiter(config.rateLimitCapacity, config.
 const aliveClients = new WeakMap<WebSocket, boolean>();
 let shuttingDown = false;
 
+function log(message: string): void {
+  console.log(`[signaling] ${new Date().toISOString()} ${message}`);
+}
+
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
@@ -221,6 +225,7 @@ keepAliveInterval.unref();
 function shutdown(): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  log('shutdown signal received; closing server');
   clearInterval(keepAliveInterval);
 
   const forceExitTimer = setTimeout(() => {
@@ -245,7 +250,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 server.listen(config.port, '0.0.0.0', () => {
-  console.log(`[signaling] QuickDrop signaling server online on port ${config.port}`);
-  console.log(`[signaling] Protocol v${PROTOCOL_VERSION}`);
-  console.log(`[signaling] Health check available at /health`);
+  log(`QuickDrop signaling server online on port ${config.port}`);
+  log(`Protocol v${PROTOCOL_VERSION}`);
+  log('Health check available at /health');
 });

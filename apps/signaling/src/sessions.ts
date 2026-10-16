@@ -5,6 +5,7 @@ export interface ClientConnection {
   ws: WebSocket;
   ip: string;
   role: 'initiator' | 'responder';
+  pairingMethod?: 'code' | 'qr';
 }
 
 export interface Session {
@@ -101,7 +102,10 @@ export class SessionStore {
     return session;
   }
 
-  public joinSession(code: string, responder: { ws: WebSocket; ip: string }): Session | { error: 'NOT_FOUND' | 'SESSION_FULL' | 'EXPIRED' } {
+  public joinSession(
+    code: string,
+    responder: { ws: WebSocket; ip: string; pairingMethod: 'code' | 'qr' },
+  ): Session | { error: 'NOT_FOUND' | 'SESSION_FULL' | 'EXPIRED' } {
     const session = this.getByCode(code);
     if (!session) {
       return { error: 'NOT_FOUND' };
@@ -115,6 +119,7 @@ export class SessionStore {
       ws: responder.ws,
       ip: responder.ip,
       role: 'responder',
+      pairingMethod: responder.pairingMethod,
     };
 
     return session;

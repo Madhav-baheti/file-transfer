@@ -20,6 +20,23 @@ describe('Protocol Message Validation', () => {
   it('validates client messages', () => {
     expect(ClientMessageSchema.safeParse({ type: 'create' }).success).toBe(true);
     expect(ClientMessageSchema.safeParse({ type: 'join', code: '482193' }).success).toBe(true);
+    expect(
+      ClientMessageSchema.parse({ type: 'join', code: '482193' }),
+    ).toMatchObject({ pairingMethod: 'code' });
+    expect(
+      ClientMessageSchema.safeParse({
+        type: 'join',
+        code: '482193',
+        pairingMethod: 'qr',
+      }).success,
+    ).toBe(true);
+    expect(
+      ClientMessageSchema.safeParse({
+        type: 'join',
+        code: '482193',
+        pairingMethod: 'invalid',
+      }).success,
+    ).toBe(false);
     expect(ClientMessageSchema.safeParse({ type: 'join', code: '7-kiwi-lamp' }).success).toBe(false);
     expect(
       ClientMessageSchema.safeParse({
@@ -45,7 +62,12 @@ describe('Protocol Message Validation', () => {
     ).toBe(true);
 
     expect(ServerMessageSchema.safeParse({ type: 'joined', role: 'responder' }).success).toBe(true);
-    expect(ServerMessageSchema.safeParse({ type: 'peer-joined' }).success).toBe(true);
+    expect(
+      ServerMessageSchema.safeParse({ type: 'peer-joined', pairingMethod: 'code' }).success,
+    ).toBe(true);
+    expect(
+      ServerMessageSchema.safeParse({ type: 'peer-joined', pairingMethod: 'qr' }).success,
+    ).toBe(true);
     expect(
       ServerMessageSchema.safeParse({
         type: 'error',

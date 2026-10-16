@@ -45,18 +45,27 @@ describe('SessionStore', () => {
     const session = store.createSession({ ws: ws1, ip: '10.0.0.1' });
 
     const ws2 = createMockSocket();
-    const joinResult = store.joinSession(session.code, { ws: ws2, ip: '10.0.0.2' });
+    const joinResult = store.joinSession(session.code, {
+      ws: ws2,
+      ip: '10.0.0.2',
+      pairingMethod: 'qr',
+    });
 
     expect('error' in joinResult).toBe(false);
     if (!('error' in joinResult)) {
       expect(joinResult.responder).toBeDefined();
       expect(joinResult.responder?.ws).toBe(ws2);
       expect(joinResult.responder?.role).toBe('responder');
+      expect(joinResult.responder?.pairingMethod).toBe('qr');
     }
 
     // Attempting to join a third client must be rejected with SESSION_FULL
     const ws3 = createMockSocket();
-    const fullResult = store.joinSession(session.code, { ws: ws3, ip: '10.0.0.3' });
+    const fullResult = store.joinSession(session.code, {
+      ws: ws3,
+      ip: '10.0.0.3',
+      pairingMethod: 'code',
+    });
     expect(fullResult).toEqual({ error: 'SESSION_FULL' });
   });
 
@@ -77,7 +86,11 @@ describe('SessionStore', () => {
     const ws1 = createMockSocket();
     const ws2 = createMockSocket();
     const session = store.createSession({ ws: ws1, ip: '1.1.1.1' });
-    store.joinSession(session.code, { ws: ws2, ip: '2.2.2.2' });
+    store.joinSession(session.code, {
+      ws: ws2,
+      ip: '2.2.2.2',
+      pairingMethod: 'code',
+    });
 
     const foundInitiator = store.findSessionBySocket(ws1);
     expect(foundInitiator?.role).toBe('initiator');

@@ -7,7 +7,6 @@ interface CreateScreenProps {
   pairingUrl: string | null;
   isWaking?: boolean;
   onCancel: () => void;
-  onUseCodeOnly: () => void;
 }
 
 export const CreateScreen: React.FC<CreateScreenProps> = ({
@@ -15,7 +14,6 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
   pairingUrl,
   isWaking = false,
   onCancel,
-  onUseCodeOnly,
 }) => {
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
 
@@ -39,7 +37,7 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
         <div className={styles.header}>
           <h2>Session Created</h2>
           <p className={styles.description}>
-            Share this short code with the other device to connect.
+            Join using the QR code or enter the six-digit code on the other device.
           </p>
         </div>
 
@@ -77,12 +75,6 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
         {pairingUrl && code && (
           <button className={styles.copyCodeButton} onClick={() => void handleCopy(code, 'code')} type="button">
             {copied === 'code' ? '✓ Code copied' : 'Copy code'}
-          </button>
-        )}
-
-        {pairingUrl && (
-          <button className={styles.cancelButton} onClick={onUseCodeOnly} type="button">
-            Joining by typing the code? Use code-only mode
           </button>
         )}
 

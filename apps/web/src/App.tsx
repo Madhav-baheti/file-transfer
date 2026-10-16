@@ -30,7 +30,7 @@ const SIGNALING_UNREACHABLE_MESSAGE =
 const VERIFICATION_FAILED_MESSAGE =
   'Verification failed. The digits did not match, so the connection may not be secure. Nothing was sent.';
 const PAIRING_MODE_MISMATCH_MESSAGE =
-  'The two devices could not agree on a secure key. If one device used the QR link and the other typed the code, start again: create the session in code-only mode, or join with the QR link. If that was not the case, someone may be interfering with the connection.';
+  'The devices could not verify the connection. Please try again using the QR code or six-digit code.';
 
 interface VerificationState {
   sas: string;
@@ -381,10 +381,10 @@ export function App() {
   };
 
   // ─── 1. Initiator: Create Session Flow ────────────────────────────────────────
-  const handleStartCreate = async (useQrPairing = true) => {
+  const handleStartCreate = async () => {
     cleanupConnections();
     setSignalingPending(false);
-    pairingSecretRef.current = useQrPairing ? generatePairingSecret() : null;
+    pairingSecretRef.current = generatePairingSecret();
     setSendError(null);
     actions.startCreate();
 
@@ -410,7 +410,10 @@ export function App() {
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: true,
-            psk: pairingSecretRef.current ?? undefined,
+            psk:
+              msg.pairingMethod === 'qr'
+                ? pairingSecretRef.current ?? undefined
+                : undefined,
             onSecureReady: (info) => handleSecureReady(info),
             ...callbacks,
           });
@@ -497,7 +500,11 @@ export function App() {
         }
       });
 
-      sig.send({ type: 'join', code: inputCode });
+      sig.send({
+        type: 'join',
+        code: inputCode,
+        pairingMethod: psk ? 'qr' : 'code',
+      });
     } catch (err) {
       if (signalingRef.current !== sig) return;
       console.warn(
@@ -777,7 +784,6 @@ export function App() {
                 pairingUrl={pairingUrl}
                 isWaking={signalingPending}
                 onCancel={handleReset}
-                onUseCodeOnly={() => handleStartCreate(false)}
               />
             )}
 

@@ -36,9 +36,12 @@ export const CreateSessionMsgSchema = z.object({
   type: z.literal('create'),
 });
 
+export const PairingMethodSchema = z.enum(['code', 'qr']);
+
 export const JoinSessionMsgSchema = z.object({
   type: z.literal('join'),
   code: z.string().trim().regex(ShortCodeRegex),
+  pairingMethod: PairingMethodSchema.default('code'),
 });
 
 export const SignalKindSchema = z.enum(['offer', 'answer', 'ice']);
@@ -79,6 +82,7 @@ export const JoinedSessionMsgSchema = z.object({
 
 export const PeerJoinedMsgSchema = z.object({
   type: z.literal('peer-joined'),
+  pairingMethod: PairingMethodSchema,
 });
 
 export const PeerSignalMsgSchema = z.object({

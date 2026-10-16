@@ -125,7 +125,11 @@ wss.on('connection', (ws, req) => {
           return;
         }
 
-        const result = sessionStore.joinSession(msg.code, { ws, ip });
+        const result = sessionStore.joinSession(msg.code, {
+          ws,
+          ip,
+          pairingMethod: msg.pairingMethod,
+        });
         if ('error' in result) {
           send(ws, { type: 'error', reason: `Join error: ${result.error}`, code: result.error });
           return;
@@ -135,7 +139,10 @@ wss.on('connection', (ws, req) => {
         send(ws, { type: 'joined', role: 'responder' });
 
         // Notify initiator that peer has joined
-        send(result.initiator.ws, { type: 'peer-joined' });
+        send(result.initiator.ws, {
+          type: 'peer-joined',
+          pairingMethod: result.responder?.pairingMethod ?? 'code',
+        });
         break;
       }
 

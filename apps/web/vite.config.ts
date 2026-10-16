@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['favicon.svg', 'quickdrop-icon.svg'],
@@ -19,6 +22,14 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#f5f5f7',
         theme_color: '#636c79',
+        share_target: {
+          action: '/share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            files: [{ name: 'files', accept: ['*/*'] }],
+          },
+        },
         icons: [
           {
             src: '/pwa-192.png',
@@ -38,11 +49,8 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        cleanupOutdatedCaches: true,
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2,webmanifest}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
       },
     }),
   ],

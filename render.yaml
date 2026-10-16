@@ -18,6 +18,10 @@ services:
         value: "1"
       - key: SESSION_TTL_MS
         value: "300000"
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_SHARED_SECRET
+        sync: false
 
   - type: web
     runtime: static

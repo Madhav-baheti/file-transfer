@@ -9,6 +9,7 @@ import { SessionStore } from './sessions.js';
 import { TokenBucketRateLimiter } from './rateLimit.js';
 import { loadConfig } from './config.js';
 import { getClientIp } from './clientIp.js';
+import { createTurnCredentials } from './turnCredentials.js';
 
 const config = loadConfig();
 const sessionStore = new SessionStore(config.sessionTtlMs);
@@ -52,6 +53,44 @@ const server = createServer((req, res) => {
       ...headers,
     });
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url?.split('?')[0] === '/turn-credentials') {
+    const isAllowedOrigin =
+      origin !== undefined &&
+      (config.allowedOrigins.includes('*') || config.allowedOrigins.includes(origin));
+    const clientIp = getClientIp(
+      req.headers['x-forwarded-for'],
+      req.socket.remoteAddress,
+      config.trustProxyHops,
+    );
+    if (!isAllowedOrigin || !rateLimiter.consume(clientIp)) {
+      res.writeHead(403, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify({ error: 'TURN credentials are unavailable' }));
+      return;
+    }
+
+    if (config.turnUrls.length === 0 || !config.turnSharedSecret) {
+      res.writeHead(503, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify({ error: 'TURN relay is not configured' }));
+      return;
+    }
+
+    const credentials = createTurnCredentials(config.turnUrls, config.turnSharedSecret);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': origin,
+      Vary: 'Origin',
+    });
+    res.end(JSON.stringify(credentials));
     return;
   }
 

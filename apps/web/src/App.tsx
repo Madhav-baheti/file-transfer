@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { useSessionStateMachine } from './lib/session';
 import { SignalingClient } from './lib/signaling';
-import { PeerManager } from './lib/peer';
+import { loadIceServers, PeerManager } from './lib/peer';
 import { generatePairingSecret, SecureChannelError } from './lib/secureChannel';
 import {
   buildPairingUrl,
@@ -11,6 +11,14 @@ import {
 import { createConnectionTimer, type ConnectionTimer } from './lib/connectionTimer';
 import { useTransferStateMachine } from './lib/transferState';
 import { FileSender, FileReceiver, sanitizeFilename } from './lib/transfer';
+import {
+  createFileQueueEntries,
+  fileQueueReducer,
+  initialFileQueue,
+  nextQueuedFile,
+  type FileQueueEntry,
+} from './lib/fileQueue';
+import { parseShareTargetMessage } from './lib/shareTarget';
 import {
   PlaintextTransportCodec,
   ControlMessageSchema,
@@ -31,6 +39,8 @@ const VERIFICATION_FAILED_MESSAGE =
   'Verification failed. The digits did not match, so the connection may not be secure. Nothing was sent.';
 const PAIRING_MODE_MISMATCH_MESSAGE =
   'The two devices could not agree on a secure key. If one device used the QR link and the other typed the code, start again: create the session in code-only mode, or join with the QR link. If that was not the case, someone may be interfering with the connection.';
+const RESUME_UNAVAILABLE_MESSAGE =
+  'Transfer interrupted. Resume unavailable because the secure session channel has closed. Start a new transfer in a new session.';
 
 interface VerificationState {
   sas: string;
@@ -43,6 +53,13 @@ const INITIAL_VERIFICATION_STATE: VerificationState = {
   required: false,
   confirmed: false,
 };
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, unit)).toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
 
 export function App() {
   const { state, actions } = useSessionStateMachine();
@@ -63,12 +80,20 @@ export function App() {
   const [verification, setVerification] = useState<VerificationState>(
     INITIAL_VERIFICATION_STATE,
   );
+  const [fileQueue, dispatchFileQueue] = useReducer(fileQueueReducer, initialFileQueue);
+  const [sharedFiles, setSharedFiles] = useState<File[]>([]);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const receivedShareIdsRef = useRef(new Set<string>());
+  const [receivedDownloads, setReceivedDownloads] = useState<
+    { id: string; filename: string; blob: Blob }[]
+  >([]);
   const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<PeerManager | null>(null);
   const pairingSecretRef = useRef<Uint8Array | null>(null);
   const connectionAttemptRef = useRef(0);
+  const activeQueueEntryRef = useRef<string | null>(null);
 
   // Active sender and receiver instances
   const senderRef = useRef<FileSender | null>(null);
@@ -102,6 +127,47 @@ export function App() {
     const updateSystemTheme = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches);
     mediaQuery.addEventListener('change', updateSystemTheme);
     return () => mediaQuery.removeEventListener('change', updateSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    const handleShareMessage = (event: MessageEvent<unknown>) => {
+      const message = parseShareTargetMessage(event.data);
+      if (!message) return;
+
+      if (event.source instanceof ServiceWorker) {
+        event.source.postMessage({
+          type: 'quickdrop-share-target-ack',
+          id: message.id,
+        });
+      }
+
+      if (receivedShareIdsRef.current.has(message.id)) return;
+      receivedShareIdsRef.current.add(message.id);
+      if (receivedShareIdsRef.current.size > 100) {
+        const oldestId = receivedShareIdsRef.current.values().next().value;
+        if (oldestId) receivedShareIdsRef.current.delete(oldestId);
+      }
+
+      if (message.type === 'quickdrop-share-target-error') {
+        setShareError(message.error);
+      } else if (message.files.length > 0) {
+        setShareError(null);
+        setSharedFiles((current) => [...current, ...message.files]);
+      } else {
+        setShareError('No files were included in the share. Choose files and try again.');
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener('message', handleShareMessage);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', handleShareMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.location.search.includes('share-target')) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -160,8 +226,10 @@ export function App() {
 
     receiverRef.current?.cancel('Connection closed');
     receiverRef.current = null;
+    activeQueueEntryRef.current = null;
 
     transferActions.resetTransfer();
+    dispatchFileQueue({ type: 'CLEAR' });
     verificationRef.current = INITIAL_VERIFICATION_STATE;
     setVerification(INITIAL_VERIFICATION_STATE);
     pairingSecretRef.current = null;
@@ -175,6 +243,11 @@ export function App() {
   };
 
   const handleDisconnect = () => {
+    const transferWasInProgress =
+      transferStatusRef.current === 'transferring' ||
+      transferStatusRef.current === 'verifying' ||
+      transferStatusRef.current === 'awaiting_confirmation';
+    setSendError(transferWasInProgress ? RESUME_UNAVAILABLE_MESSAGE : null);
     cleanupConnections();
     actions.close();
   };
@@ -182,6 +255,9 @@ export function App() {
   const handleReset = () => {
     cleanupConnections();
     setSendError(null);
+    setSharedFiles([]);
+    setReceivedDownloads([]);
+    setShareError(null);
     actions.reset();
   };
 
@@ -262,8 +338,19 @@ export function App() {
   if (!transferConfirmationTimerRef.current) {
     transferConfirmationTimerRef.current = createConnectionTimer(30000, () => {
       if (transferStatusRef.current === 'awaiting_confirmation') {
+        const queueId = activeQueueEntryRef.current;
+        if (queueId) {
+          dispatchFileQueue({
+            type: 'SET_STATUS',
+            id: queueId,
+            status: 'failed',
+            error: 'No confirmation received',
+          });
+        }
         senderRef.current = null;
         transferActions.failTransfer('No confirmation received');
+        activeQueueEntryRef.current = null;
+        transferActions.resetTransfer();
       }
     });
   }
@@ -312,7 +399,13 @@ export function App() {
           switch (msg.type) {
             case 'file-offer': {
               // Only 1 transfer at a time: reject if active
-              if (transferStatusRef.current !== 'idle') {
+              if (
+                transferStatusRef.current === 'completed' ||
+                transferStatusRef.current === 'failed' ||
+                transferStatusRef.current === 'cancelled'
+              ) {
+                transferActions.resetTransfer();
+              } else if (transferStatusRef.current !== 'idle') {
                 const declineMsg = PlaintextTransportCodec.encodeControl({
                   type: 'file-decline',
                   id: msg.id,
@@ -332,25 +425,50 @@ export function App() {
             }
 
             case 'file-accept': {
-              // Sender receives accept -> begin streaming
-              if (senderRef.current && transferStatusRef.current === 'transferring') {
-                senderRef.current.start();
+              const sender = senderRef.current;
+              const queueId = activeQueueEntryRef.current;
+              if (
+                sender &&
+                msg.id === sender.getOffer().id &&
+                queueId === sender.getOffer().id
+              ) {
+                dispatchFileQueue({
+                  type: 'SET_STATUS',
+                  id: queueId,
+                  status: 'transferring',
+                });
+                transferActions.acceptTransfer();
+                sender.start();
               }
               return;
             }
 
             case 'file-ack': {
               const sender = senderRef.current;
-              if (sender && sender.getOffer().id === msg.id && sender.handleAck(msg.bytes)) {
-                transferConfirmationTimerRef.current?.start();
+              if (
+                sender &&
+                transferStatusRef.current === 'transferring' &&
+                sender.getOffer().id === msg.id
+              ) {
+                sender.handleAck(msg.bytes);
               }
               return;
             }
 
             case 'file-decline': {
-              senderRef.current?.cancel(msg.reason || 'Receiver declined transfer');
-              senderRef.current = null;
-              transferActions.failTransfer(`Transfer declined: ${msg.reason || 'Receiver declined'}`);
+              const sender = senderRef.current;
+              const queueId = activeQueueEntryRef.current;
+              if (sender && queueId === msg.id && sender.getOffer().id === msg.id) {
+                dispatchFileQueue({
+                  type: 'SET_STATUS',
+                  id: queueId,
+                  status: 'declined',
+                  error: msg.reason || 'Receiver declined this file',
+                });
+                senderRef.current = null;
+                activeQueueEntryRef.current = null;
+                transferActions.resetTransfer();
+              }
               return;
             }
 
@@ -365,9 +483,12 @@ export function App() {
             case 'file-result': {
               const transferStatus = transferStatusRef.current;
               const sender = senderRef.current;
+              const queueId = activeQueueEntryRef.current;
               if (
                 !sender ||
-                (transferStatus !== 'transferring' && transferStatus !== 'awaiting_confirmation') ||
+                !queueId ||
+                queueId !== msg.id ||
+                transferStatus !== 'awaiting_confirmation' ||
                 sender.getOffer().id !== msg.id
               ) {
                 return;
@@ -375,16 +496,37 @@ export function App() {
 
               transferConfirmationTimerRef.current?.clear();
               transferActions.fileResult(msg.id, msg.ok, msg.error);
+              dispatchFileQueue({
+                type: 'SET_STATUS',
+                id: queueId,
+                status: msg.ok ? 'complete' : 'failed',
+                error: msg.ok ? null : msg.error || 'Receiver could not verify the file',
+              });
               senderRef.current = null;
+              activeQueueEntryRef.current = null;
+              transferActions.resetTransfer();
               return;
             }
 
             case 'file-cancel': {
-              senderRef.current?.cancel(msg.reason || 'Cancelled by peer');
-              senderRef.current = null;
-              receiverRef.current?.cancel(msg.reason || 'Cancelled by peer');
-              receiverRef.current = null;
-              transferActions.cancelTransfer();
+              const queueId = activeQueueEntryRef.current;
+              if (senderRef.current?.getOffer().id === msg.id && queueId === msg.id) {
+                senderRef.current = null;
+                activeQueueEntryRef.current = null;
+                dispatchFileQueue({
+                  type: 'SET_STATUS',
+                  id: queueId,
+                  status: 'cancelled',
+                });
+                transferActions.cancelTransfer();
+                transferActions.resetTransfer();
+                return;
+              }
+              if (receiverRef.current?.offer.id === msg.id) {
+                receiverRef.current.cancel(msg.reason || 'Cancelled by peer');
+                receiverRef.current = null;
+                transferActions.cancelTransfer();
+              }
               return;
             }
 
@@ -415,12 +557,6 @@ export function App() {
         ) {
           return;
         }
-        if (transferStatusRef.current === 'awaiting_confirmation') {
-          transferConfirmationTimerRef.current?.clear();
-          senderRef.current = null;
-          transferActions.failTransfer('No confirmation received');
-          return;
-        }
         handleDisconnect();
       },
       onMessage: (data: string | ArrayBuffer) => {
@@ -440,9 +576,15 @@ export function App() {
         if (pcState === 'connected') {
           disconnectGraceTimerRef.current?.clear();
         } else if (pcState === 'failed') {
+          const transferWasInProgress =
+            transferStatusRef.current === 'transferring' ||
+            transferStatusRef.current === 'verifying' ||
+            transferStatusRef.current === 'awaiting_confirmation';
           cleanupConnections();
           actions.fail(
-            'Could not establish a direct connection (the network may be blocking peer-to-peer)',
+            transferWasInProgress
+              ? `${RESUME_UNAVAILABLE_MESSAGE} The peer connection failed.`
+              : 'Could not establish a direct connection (the network may be blocking peer-to-peer)',
           );
         } else if (pcState === 'disconnected') {
           disconnectGraceTimerRef.current?.start();
@@ -483,6 +625,7 @@ export function App() {
 
     const sig = new SignalingClient();
     signalingRef.current = sig;
+    const iceServersPromise = loadIceServers();
     sig.onPending(() => {
       if (connectionAttemptRef.current === attempt && signalingRef.current === sig) {
         setSignalingPending(true);
@@ -490,7 +633,7 @@ export function App() {
     });
 
     try {
-      await sig.connect();
+      const [, iceServers] = await Promise.all([sig.connect(), iceServersPromise]);
       if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
       setSignalingPending(false);
 
@@ -503,10 +646,10 @@ export function App() {
           connectionTimerRef.current?.start();
 
           const callbacks = setupPeerConnectionEvents(attempt);
-
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: true,
+            iceServers,
             psk:
               msg.pairingMethod === 'qr'
                 ? pairingSecretRef.current ?? undefined
@@ -561,6 +704,7 @@ export function App() {
 
     const sig = new SignalingClient();
     signalingRef.current = sig;
+    const iceServersPromise = loadIceServers();
     sig.onPending(() => {
       if (connectionAttemptRef.current === attempt && signalingRef.current === sig) {
         setSignalingPending(true);
@@ -568,7 +712,7 @@ export function App() {
     });
 
     try {
-      await sig.connect();
+      const [, iceServers] = await Promise.all([sig.connect(), iceServersPromise]);
       if (connectionAttemptRef.current !== attempt || signalingRef.current !== sig) return;
       setSignalingPending(false);
 
@@ -578,10 +722,10 @@ export function App() {
           connectionTimerRef.current?.start();
 
           const callbacks = setupPeerConnectionEvents(attempt);
-
           const peer = new PeerManager({
             signaling: sig,
             isInitiator: false,
+            iceServers,
             psk: pairingSecretRef.current ?? undefined,
             onSecureReady: (info) => {
               if (connectionAttemptRef.current === attempt) handleSecureReady(info);
@@ -633,53 +777,130 @@ export function App() {
   }, [initialPairing]);
 
   // ─── 3. File Transfer Actions ────────────────────────────────────────────────
-  const handleSelectFile = (file: File) => {
+  const handleSelectFiles = (files: File[]) => {
     if (!verificationRef.current.confirmed) {
       setSendError('Verify the connection first');
       return;
     }
     if (!peerRef.current || statusRef.current !== 'connected') {
-      setSendError('Cannot send file: not connected');
+      setSendError('Files are queued only while connected to a verified device.');
       return;
     }
-    const channel = peerRef.current.getTransferChannel();
-    if (!channel || channel.readyState !== 'open') {
-      setSendError('Cannot start transfer: the secure data channel is unavailable');
+    if (files.length === 0) return;
+    dispatchFileQueue({ type: 'ENQUEUE', entries: createFileQueueEntries(files) });
+    setSendError(null);
+  };
+
+  useEffect(() => {
+    if (
+      state.status !== 'connected' ||
+      !verification.confirmed ||
+      transferState.status !== 'idle' ||
+      activeQueueEntryRef.current
+    ) {
       return;
     }
 
+    const entry = nextQueuedFile(fileQueue);
+    if (!entry) return;
+
+    const peer = peerRef.current;
+    const channel = peer?.getTransferChannel();
+    if (!peer || !channel || channel.readyState !== 'open') {
+      dispatchFileQueue({
+        type: 'SET_STATUS',
+        id: entry.id,
+        status: 'failed',
+        error: 'The secure data channel is unavailable',
+      });
+      return;
+    }
+
+    activeQueueEntryRef.current = entry.id;
     const sender = new FileSender({
-      file,
+      file: entry.file,
+      fileId: entry.id,
       dataChannel: channel,
       codec: PlaintextTransportCodec,
-      onProgress: (p) => {
-        transferActions.updateProgress(p);
+      onProgress: (progress) => {
+        if (activeQueueEntryRef.current !== entry.id) return;
+        dispatchFileQueue({ type: 'UPDATE_PROGRESS', id: entry.id, progress });
+        transferActions.updateProgress(progress);
       },
-      onError: (err) => {
+      onError: (error) => {
+        if (activeQueueEntryRef.current !== entry.id) return;
         transferConfirmationTimerRef.current?.clear();
-        transferActions.failTransfer(err.message);
+        dispatchFileQueue({
+          type: 'SET_STATUS',
+          id: entry.id,
+          status: 'failed',
+          error: error.message,
+        });
+        transferActions.failTransfer(error.message);
         senderRef.current = null;
+        activeQueueEntryRef.current = null;
+        transferActions.resetTransfer();
       },
       onCompleted: () => {
+        if (activeQueueEntryRef.current !== entry.id) return;
         transferConfirmationTimerRef.current?.clear();
+        dispatchFileQueue({
+          type: 'SET_STATUS',
+          id: entry.id,
+          status: 'awaiting-confirmation',
+        });
         transferActions.awaitConfirmation();
-        if (
-          senderRef.current === sender &&
-          transferStatusRef.current !== 'completed' &&
-          transferStatusRef.current !== 'failed'
-        ) {
-          transferConfirmationTimerRef.current?.start();
-        }
+        transferConfirmationTimerRef.current?.start();
       },
     });
-
     senderRef.current = sender;
-    const offer = sender.getOffer();
-    transferActions.startSending(offer);
+    transferActions.startSending(sender.getOffer());
+    dispatchFileQueue({
+      type: 'SET_STATUS',
+      id: entry.id,
+      status: 'awaiting-acceptance',
+    });
 
-    // Send file-offer control message over data channel
-    const encodedOffer = PlaintextTransportCodec.encodeControl(offer);
-    peerRef.current.sendData(encodedOffer);
+    try {
+      peer.sendData(PlaintextTransportCodec.encodeControl(sender.getOffer()));
+    } catch {
+      dispatchFileQueue({
+        type: 'SET_STATUS',
+        id: entry.id,
+        status: 'failed',
+        error: 'Could not send the file offer. Check the connection and try again.',
+      });
+      senderRef.current = null;
+      activeQueueEntryRef.current = null;
+      transferActions.resetTransfer();
+    }
+  }, [fileQueue, state.status, transferState.status, verification.confirmed, transferActions]);
+
+  useEffect(() => {
+    if (sharedFiles.length === 0 || state.status !== 'connected' || !verification.confirmed) {
+      return;
+    }
+    dispatchFileQueue({ type: 'ENQUEUE', entries: createFileQueueEntries(sharedFiles) });
+    setSharedFiles([]);
+  }, [sharedFiles, state.status, verification.confirmed]);
+
+  const handleCancelQueueEntry = (entry: FileQueueEntry) => {
+    if (entry.status === 'queued') {
+      dispatchFileQueue({ type: 'CANCEL_QUEUED', id: entry.id });
+      return;
+    }
+    if (activeQueueEntryRef.current !== entry.id) return;
+    transferConfirmationTimerRef.current?.clear();
+    senderRef.current?.cancel('Sender cancelled');
+    senderRef.current = null;
+    activeQueueEntryRef.current = null;
+    dispatchFileQueue({
+      type: 'SET_STATUS',
+      id: entry.id,
+      status: 'cancelled',
+    });
+    transferActions.cancelTransfer();
+    transferActions.resetTransfer();
   };
 
   const handleAcceptTransfer = async () => {
@@ -737,11 +958,13 @@ export function App() {
       codec: PlaintextTransportCodec,
       writableStream,
       onProgress: (p) => {
+        if (peerRef.current !== peer || connectionAttemptRef.current !== attempt) return;
         transferActions.updateProgress(p);
       },
       onAck: (bytes) => {
+        if (peerRef.current !== peer || connectionAttemptRef.current !== attempt) return;
         try {
-          peerRef.current?.sendData(
+          peer.sendData(
             PlaintextTransportCodec.encodeControl({
               type: 'file-ack',
               id: offer.id,
@@ -753,17 +976,20 @@ export function App() {
         }
       },
       onError: (err) => {
+        if (
+          peerRef.current !== peer ||
+          connectionAttemptRef.current !== attempt ||
+          receiverRef.current?.offer.id !== offer.id
+        ) return;
         try {
-          if (peerRef.current) {
-            peerRef.current.sendData(
-              PlaintextTransportCodec.encodeControl({
-                type: 'file-result',
-                id: offer.id,
-                ok: false,
-                error: err.message,
-              }),
-            );
-          }
+          peer.sendData(
+            PlaintextTransportCodec.encodeControl({
+              type: 'file-result',
+              id: offer.id,
+              ok: false,
+              error: err.message,
+            }),
+          );
         } catch {
           // ignore closed channel failure
         }
@@ -771,18 +997,27 @@ export function App() {
         receiverRef.current = null;
       },
       onCompleted: (blob) => {
+        if (
+          peerRef.current !== peer ||
+          connectionAttemptRef.current !== attempt ||
+          receiverRef.current?.offer.id !== offer.id
+        ) return;
         try {
-          if (peerRef.current) {
-            peerRef.current.sendData(
-              PlaintextTransportCodec.encodeControl({
-                type: 'file-result',
-                id: offer.id,
-                ok: true,
-              }),
-            );
-          }
+          peer.sendData(
+            PlaintextTransportCodec.encodeControl({
+              type: 'file-result',
+              id: offer.id,
+              ok: true,
+            }),
+          );
         } catch {
           // ignore closed channel failure
+        }
+        if (blob) {
+          setReceivedDownloads((downloads) => [
+            ...downloads,
+            { id: offer.id, filename: sanitizeFilename(offer.name), blob },
+          ]);
         }
         transferActions.completeTransfer(blob);
         receiverRef.current = null;
@@ -916,6 +1151,40 @@ export function App() {
           </header>
 
           <div className={styles.heroContent}>
+            {shareError && (
+              <div className={styles.shareNotice} role="alert">
+                <span>{shareError}</span>
+                <button type="button" onClick={() => setShareError(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {sharedFiles.length > 0 && state.status === 'idle' && (
+              <section className={styles.shareNotice} aria-labelledby="shared-files-heading">
+                <h2 id="shared-files-heading">Files ready to send</h2>
+                <ul>
+                  {sharedFiles.map((file, index) => (
+                    <li key={`${file.name}-${index}`}>
+                      {sanitizeFilename(file.name)} · {formatFileSize(file.size)}
+                    </li>
+                  ))}
+                </ul>
+                <p>Create or join a session to add these files to the normal send queue.</p>
+                <button type="button" onClick={() => setSharedFiles([])}>
+                  Clear shared files
+                </button>
+              </section>
+            )}
+
+            {sharedFiles.length > 0 &&
+              state.status !== 'idle' &&
+              state.status !== 'connected' && (
+                <p className={styles.shareNotice} role="status">
+                  Shared files are held in memory until this session is connected.
+                </p>
+              )}
+
             {state.status === 'idle' && (
               <PairingCards
                 onCreateSession={() => handleStartCreate()}
@@ -981,11 +1250,14 @@ export function App() {
                 onDisconnect={handleDisconnect}
                 sendError={sendError}
                 transferState={transferState}
-                onSelectFile={handleSelectFile}
+                onSelectFile={handleSelectFiles}
                 onAcceptTransfer={handleAcceptTransfer}
                 onDeclineTransfer={handleDeclineTransfer}
                 onCancelTransfer={handleCancelTransfer}
                 onResetTransfer={transferActions.resetTransfer}
+                fileQueue={fileQueue}
+                onCancelQueueEntry={handleCancelQueueEntry}
+                receivedDownloads={receivedDownloads}
               />
             )}
 
@@ -1010,7 +1282,7 @@ export function App() {
                     role={state.status === 'failed' ? 'alert' : 'status'}
                     aria-live={state.status === 'failed' ? 'assertive' : 'polite'}
                   >
-                    {state.error || 'The session was closed.'}
+                    {sendError || state.error || 'The session was closed.'}
                   </p>
                   {state.status === 'failed' &&
                   (state.error === SIGNALING_UNREACHABLE_MESSAGE ||

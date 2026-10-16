@@ -13,7 +13,33 @@ describe('loadConfig', () => {
       allowedOrigins: ['https://one.example', 'https://two.example'],
       sessionTtlMs: 300000,
       trustProxyHops: 0,
+      turnUrls: [],
+      turnSharedSecret: null,
     });
+  });
+
+  it('loads TURN settings only when both a valid relay URL and long secret are supplied', () => {
+    expect(
+      loadConfig({
+        TURN_URLS: 'turn:relay.example:3478, turns:relay.example:5349',
+        TURN_SHARED_SECRET: 'a'.repeat(32),
+      }),
+    ).toMatchObject({
+      turnUrls: ['turn:relay.example:3478', 'turns:relay.example:5349'],
+      turnSharedSecret: 'a'.repeat(32),
+    });
+    expect(
+      loadConfig({
+        TURN_URLS: 'turn:relay.example:3478',
+        TURN_SHARED_SECRET: 'too-short',
+      }),
+    ).toMatchObject({ turnUrls: [], turnSharedSecret: null });
+    expect(
+      loadConfig({
+        TURN_URLS: 'turn:user:password@relay.example:3478',
+        TURN_SHARED_SECRET: 'a'.repeat(32),
+      }),
+    ).toMatchObject({ turnUrls: [], turnSharedSecret: null });
   });
 
   it('rejects empty allowed origins in production', () => {

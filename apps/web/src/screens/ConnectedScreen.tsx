@@ -1,12 +1,20 @@
 import React, { useState } from 'react';
 import type { ChatMessage } from '../lib/session';
 import type { TransferState } from '../lib/transferState';
+import type { FileQueueEntry } from '../lib/fileQueue';
 import { BlobDownloadLink } from '../components/BlobDownloadLink';
 import { DropZone } from '../components/DropZone';
 import { IncomingOffer } from '../components/IncomingOffer';
 import { TransferProgress } from '../components/TransferProgress';
 import { VerificationPanel } from '../components/VerificationPanel';
+import { FileQueue } from '../components/FileQueue';
 import styles from './Screens.module.css';
+
+interface ReceivedDownload {
+  id: string;
+  filename: string;
+  blob: Blob;
+}
 
 interface ConnectedScreenProps {
   role: 'initiator' | 'responder' | null;
@@ -24,11 +32,14 @@ interface ConnectedScreenProps {
 
   // File Transfer props
   transferState: TransferState;
-  onSelectFile: (file: File) => void;
+  onSelectFile: (files: File[]) => void;
   onAcceptTransfer: () => void;
   onDeclineTransfer: () => void;
   onCancelTransfer: () => void;
   onResetTransfer: () => void;
+  fileQueue: FileQueueEntry[];
+  onCancelQueueEntry: (entry: FileQueueEntry) => void;
+  receivedDownloads: ReceivedDownload[];
 }
 
 export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
@@ -46,6 +57,9 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
   onDeclineTransfer,
   onCancelTransfer,
   onResetTransfer,
+  fileQueue,
+  onCancelQueueEntry,
+  receivedDownloads,
 }) => {
   const [inputText, setInputText] = useState('');
 
@@ -86,14 +100,16 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
 
       {/* ─── File Transfer Section (Components using tokens.css) ────────── */}
       <div className={styles.transferBox}>
-        {transferState.status === 'idle' && (
+        {(transferState.status === 'idle' ||
+          (transferState.direction === 'sender' && fileQueue.length > 0)) && (
           <>
-            <DropZone onFileSelected={onSelectFile} disabled={!verification.confirmed} />
+            <DropZone onFilesSelected={onSelectFile} disabled={!verification.confirmed} />
             {!verification.confirmed && (
               <p className={styles.subtle}>Verify the connection first</p>
             )}
           </>
         )}
+        <FileQueue entries={fileQueue} onCancel={onCancelQueueEntry} />
 
         {/* Incoming offer prompt for receiver */}
         {transferState.status === 'offered' && transferState.direction === 'receiver' && transferState.offer && (
@@ -140,27 +156,40 @@ export const ConnectedScreen: React.FC<ConnectedScreenProps> = ({
 
         {/* Transfer Completed */}
         {transferState.status === 'completed' && transferState.offer && (
-          <div className={styles.noticeBox}>
-            <TransferProgress
-              filename={transferState.offer.name}
-              totalBytes={transferState.offer.size}
-              direction={transferState.direction || 'sender'}
-              progress={transferState.progress}
-              status="completed"
-            />
-            {transferState.completedBlob && (
-              <BlobDownloadLink
-                blob={transferState.completedBlob}
-                filename={transferState.offer.name || 'download'}
-                className={styles.downloadLink}
-              >
-                Save {transferState.offer.name}
-              </BlobDownloadLink>
+          <>
+            <div className={styles.noticeBox}>
+              <TransferProgress
+                filename={transferState.offer.name}
+                totalBytes={transferState.offer.size}
+                direction={transferState.direction || 'sender'}
+                progress={transferState.progress}
+                status="completed"
+              />
+              {transferState.direction === 'receiver' && (
+                <button className={styles.copyButton} onClick={onResetTransfer} type="button">
+                  Ready for another file
+                </button>
+              )}
+            </div>
+            {receivedDownloads.length > 0 && (
+              <section className={styles.downloads} aria-labelledby="received-files-heading">
+                <h2 id="received-files-heading">Received files</h2>
+                <ul>
+                  {receivedDownloads.map((download) => (
+                    <li key={download.id}>
+                      <BlobDownloadLink
+                        blob={download.blob}
+                        filename={download.filename}
+                        className={styles.downloadLink}
+                      >
+                        Save {download.filename}
+                      </BlobDownloadLink>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
-            <button className={styles.copyButton} onClick={onResetTransfer} type="button">
-              Transfer Another File
-            </button>
-          </div>
+          </>
         )}
 
         {/* Transfer Failed or Cancelled */}

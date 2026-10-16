@@ -1,6 +1,8 @@
 import type { TransferChannel } from './transfer';
 import { SecureTransport } from './secureTransport';
 import { extractFingerprint } from './secureChannel';
+import { defaultStunServers, parseTurnConfiguration, toTurnIceServer } from './iceConfig';
+import { resolveSignalingUrl } from './signaling';
 import { z } from 'zod';
 import type { SignalingClient } from './signaling';
 
@@ -35,20 +37,43 @@ export interface PeerManagerOptions {
   onError?: (err: unknown) => void;
 }
 
-function parseIceServers(): RTCIceServer[] {
-  const envServers = import.meta.env.VITE_ICE_SERVERS;
-  if (envServers) {
-    const urls = envServers.split(',').map((s) => s.trim()).filter(Boolean);
-    if (urls.length > 0) {
-      return [{ urls }];
-    }
-  }
+export async function loadIceServers(): Promise<RTCIceServer[]> {
+  const stunServers = defaultStunServers(import.meta.env.VITE_ICE_SERVERS);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 3000);
 
-  // Default to public STUN servers per Section 6
-  return [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ];
+  try {
+    const signalingUrl = resolveSignalingUrl(
+      import.meta.env.VITE_SIGNALING_URL,
+      import.meta.env.PROD,
+      window.location.hostname,
+    );
+    const endpoint = new URL(signalingUrl);
+    endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+    endpoint.pathname = '/turn-credentials';
+    endpoint.search = '';
+    endpoint.hash = '';
+
+    const response = await fetch(endpoint, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.warn('TURN relay credentials are unavailable; continuing with STUN/direct connection.');
+      return stunServers;
+    }
+    const config = parseTurnConfiguration(await response.json());
+    if (!config) {
+      console.warn('TURN relay credentials were invalid; continuing with STUN/direct connection.');
+      return stunServers;
+    }
+    return [...stunServers, toTurnIceServer(config)];
+  } catch {
+    console.warn('TURN relay credentials could not be loaded; continuing with STUN/direct connection.');
+    return stunServers;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 /**
@@ -77,7 +102,7 @@ export class PeerManager {
 
   constructor(options: PeerManagerOptions) {
     this.options = options;
-    const iceServers = options.iceServers ?? parseIceServers();
+    const iceServers = options.iceServers ?? defaultStunServers(import.meta.env.VITE_ICE_SERVERS);
 
     this.pc = new RTCPeerConnection({
       iceServers,

@@ -72,6 +72,26 @@ describe('transferReducer Guards', () => {
 
     const accepted = transferReducer(offeredState, { type: 'ACCEPT_TRANSFER' });
     expect(accepted.status).toBe('transferring');
+
+    const senderAwaiting = transferReducer(initialTransferState, {
+      type: 'START_SENDING',
+      offer: mockOffer,
+    });
+    expect(senderAwaiting.status).toBe('awaiting_acceptance');
+    expect(
+      transferReducer(senderAwaiting, { type: 'UPDATE_PROGRESS', progress: {
+        fileId: mockOffer.id,
+        filename: mockOffer.name,
+        totalBytes: mockOffer.size,
+        transferredBytes: 0,
+        percentage: 0,
+        speedBytesPerSec: 0,
+        etaSeconds: 0,
+      } }),
+    ).toBe(senderAwaiting);
+    expect(transferReducer(senderAwaiting, { type: 'ACCEPT_TRANSFER' }).status).toBe(
+      'transferring',
+    );
   });
 
   it('guard: UPDATE_PROGRESS and COMPLETE_TRANSFER only valid when transferring', () => {
@@ -226,7 +246,7 @@ describe('transferReducer Guards', () => {
     expect(failed.error).toBe('Receiver rejected the file');
   });
 
-  it('handles FILE_RESULT from a sender while transferring', () => {
+  it('ignores FILE_RESULT until the sender has sent file-end and awaits confirmation', () => {
     const transferringSender: TransferState = {
       ...initialTransferState,
       status: 'transferring',
@@ -239,7 +259,7 @@ describe('transferReducer Guards', () => {
       id: mockOffer.id,
       ok: true,
     });
-    expect(completed.status).toBe('completed');
+    expect(completed).toBe(transferringSender);
 
     const failed = transferReducer(transferringSender, {
       type: 'FILE_RESULT',
@@ -247,8 +267,7 @@ describe('transferReducer Guards', () => {
       ok: false,
       error: 'Receiver reported a write failure',
     });
-    expect(failed.status).toBe('failed');
-    expect(failed.error).toBe('Receiver reported a write failure');
+    expect(failed).toBe(transferringSender);
 
     const receiver: TransferState = { ...transferringSender, direction: 'receiver' };
     expect(

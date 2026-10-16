@@ -3,6 +3,8 @@ export interface SignalingConfig {
   allowedOrigins: string[];
   sessionTtlMs: number;
   trustProxyHops: number;
+  turnUrls: string[];
+  turnSharedSecret: string | null;
   rateLimitCapacity: number;
   rateLimitRefillRate: number;
   maxMessageSize: number;
@@ -40,12 +42,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SignalingConfi
 
   const port = parseInteger('PORT', env.PORT ?? '3001', 1);
   if (port > 65535) throw new Error('PORT must be between 1 and 65535');
+  const rawTurnUrls = env.TURN_URLS?.split(',').map((url) => url.trim()).filter(Boolean) ?? [];
+  const turnUrlsAreValid = rawTurnUrls.every(
+    (url) => /^turns?:[^\s,]+$/i.test(url) && !url.includes('@'),
+  );
+  const turnUrls = turnUrlsAreValid ? rawTurnUrls : [];
+  const candidateTurnSecret = env.TURN_SHARED_SECRET?.trim() || null;
+  const turnSharedSecret =
+    candidateTurnSecret && candidateTurnSecret.length >= 32 ? candidateTurnSecret : null;
 
   return {
     port,
     allowedOrigins,
     sessionTtlMs: parseInteger('SESSION_TTL_MS', env.SESSION_TTL_MS ?? '300000', 1),
     trustProxyHops: parseInteger('TRUST_PROXY_HOPS', env.TRUST_PROXY_HOPS ?? '0', 0),
+    turnUrls:
+      turnUrls.length > 0 && turnSharedSecret ? turnUrls : [],
+    turnSharedSecret: turnUrls.length > 0 ? turnSharedSecret : null,
     rateLimitCapacity: parseInteger(
       'RATE_LIMIT_CAPACITY',
       env.RATE_LIMIT_CAPACITY ?? '15',

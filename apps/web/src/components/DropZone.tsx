@@ -2,12 +2,12 @@ import React, { useRef, useState } from 'react';
 import styles from './DropZone.module.css';
 
 interface DropZoneProps {
-  onFileSelected: (file: File) => void;
+  onFilesSelected: (files: File[]) => void;
   disabled?: boolean;
 }
 
 export const DropZone: React.FC<DropZoneProps> = ({
-  onFileSelected,
+  onFilesSelected,
   disabled = false,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -28,8 +28,7 @@ export const DropZone: React.FC<DropZoneProps> = ({
     e.preventDefault();
     setIsDragOver(false);
     if (!disabled && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      onFileSelected(file);
+      onFilesSelected(Array.from(e.dataTransfer.files));
     }
   };
 
@@ -41,8 +40,7 @@ export const DropZone: React.FC<DropZoneProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      onFileSelected(file);
+      onFilesSelected(Array.from(e.target.files));
       e.target.value = '';
     }
   };
@@ -60,6 +58,7 @@ export const DropZone: React.FC<DropZoneProps> = ({
         type="file"
         ref={fileInputRef}
         className={styles.fileInputHidden}
+        multiple
         onChange={handleFileChange}
         disabled={disabled}
       />
@@ -80,7 +79,9 @@ export const DropZone: React.FC<DropZoneProps> = ({
           {disabled ? 'Verify the connection first' : 'Add your files'}
         </span>
         <span className={styles.hint}>
-          {disabled ? 'Confirm the digits above before sending a file' : 'Drop a file or browse (Up to 20 GB)'}
+          {disabled
+            ? 'Confirm the digits above before sending files'
+            : 'Drop files or browse (Up to 20 GB per file)'}
         </span>
       </button>
     </div>

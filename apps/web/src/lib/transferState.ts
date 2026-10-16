@@ -5,6 +5,7 @@ import type { TransferProgress } from './transfer';
 export type TransferStateKind =
   | 'idle'
   | 'offered'
+  | 'awaiting_acceptance'
   | 'transferring'
   | 'verifying'
   | 'awaiting_confirmation'
@@ -46,12 +47,12 @@ export const initialTransferState: TransferState = {
 /**
  * Pure reducer for file transfer state machine with transition guards:
  * - Only 1 transfer at a time: OFFER_INCOMING and START_SENDING are rejected if not idle
- * - ACCEPT_TRANSFER is only valid from 'offered'
+ * - ACCEPT_TRANSFER is only valid from receiver 'offered' or sender 'awaiting_acceptance'
  * - UPDATE_PROGRESS is only valid from 'transferring'
  * - BEGIN_VERIFYING is only valid from 'transferring' for receiver
  * - AWAIT_CONFIRMATION is only valid from 'transferring' for sender
  * - COMPLETE_TRANSFER is valid from 'awaiting_confirmation' (sender) or 'transferring'/'verifying' (receiver)
- * - CANCEL_TRANSFER is valid from 'offered', 'transferring', 'verifying', or 'awaiting_confirmation'
+ * - CANCEL_TRANSFER is valid from 'offered', 'awaiting_acceptance', 'transferring', 'verifying', or 'awaiting_confirmation'
  * - FAIL_TRANSFER is ignored if already completed or cancelled
  */
 export function transferReducer(state: TransferState, action: TransferAction): TransferState {
@@ -77,7 +78,7 @@ export function transferReducer(state: TransferState, action: TransferAction): T
       }
       return {
         ...state,
-        status: 'transferring',
+        status: 'awaiting_acceptance',
         direction: 'sender',
         offer: action.offer,
         progress: null,
@@ -87,7 +88,10 @@ export function transferReducer(state: TransferState, action: TransferAction): T
     }
 
     case 'ACCEPT_TRANSFER': {
-      if (state.status !== 'offered') {
+      const receiverAccepted = state.status === 'offered' && state.direction === 'receiver';
+      const senderAccepted =
+        state.status === 'awaiting_acceptance' && state.direction === 'sender';
+      if (!receiverAccepted && !senderAccepted) {
         return state;
       }
       return {
@@ -136,7 +140,7 @@ export function transferReducer(state: TransferState, action: TransferAction): T
     case 'FILE_RESULT': {
       if (
         state.direction !== 'sender' ||
-        (state.status !== 'transferring' && state.status !== 'awaiting_confirmation') ||
+        state.status !== 'awaiting_confirmation' ||
         state.offer?.id !== action.id
       ) {
         return state;
@@ -193,6 +197,7 @@ export function transferReducer(state: TransferState, action: TransferAction): T
     case 'CANCEL_TRANSFER': {
       if (
         state.status !== 'offered' &&
+        state.status !== 'awaiting_acceptance' &&
         state.status !== 'transferring' &&
         state.status !== 'verifying' &&
         state.status !== 'awaiting_confirmation'

@@ -307,6 +307,25 @@
   align-items: center;
 }
 
+.downloads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  color: var(--color-text-on-hero);
+}
+
+.downloads h2 {
+  font-size: var(--text-small);
+  font-weight: var(--weight-semibold);
+}
+
+.downloads ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+}
+
 .downloadLink {
   background: var(--color-accent-mint);
   color: var(--color-text-on-accent);

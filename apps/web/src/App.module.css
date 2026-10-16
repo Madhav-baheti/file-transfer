@@ -46,6 +46,36 @@
   opacity: 0.65;
 }
 
+.shareNotice {
+  width: 100%;
+  max-width: 600px;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-card);
+  background: var(--color-hero-card);
+  color: var(--color-text-on-hero);
+  font-size: var(--text-small);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.shareNotice ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+}
+
+.shareNotice button {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-on-hero);
+  border-radius: var(--radius-button);
+  color: var(--color-text-on-hero);
+}
+
 /* ─── Hero Panel ─────────────────────────────────────────────── */
 
 .heroPanel {

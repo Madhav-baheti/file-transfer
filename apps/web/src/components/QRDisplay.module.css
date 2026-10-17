@@ -1,17 +1,25 @@
 .quietZone {
   display: inline-flex;
+  flex: 0 0 auto;
+  box-sizing: border-box;
   max-width: 100%;
   padding: var(--space-4);
   border-radius: var(--radius-card);
   background: var(--color-qr-background);
   box-shadow: var(--shadow-card);
-
 }
 
 .canvas {
   display: block;
+  flex: 0 0 auto;
   max-width: 100%;
   height: auto;
+}
+
+@media (max-width: 480px) {
+  .quietZone {
+    padding: var(--space-2);
+  }
 }
 .quietZone[hidden] {
   display: none;

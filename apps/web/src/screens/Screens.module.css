@@ -25,6 +25,10 @@
   width: 100%;
 }
 
+.createInnerCard {
+  min-width: 0;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -90,6 +94,8 @@
   padding: var(--space-4);
   border-radius: var(--radius-card);
   background: var(--overlay-dark-12);
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .shareWarning {
@@ -124,6 +130,16 @@
   font-size: var(--text-small);
   font-weight: var(--weight-semibold);
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+@media (max-width: 480px) {
+  .createInnerCard {
+    padding-inline: var(--space-4);
+  }
+
+  .qrContainer {
+    padding: var(--space-2);
+  }
 }
 
 .copyButton:hover:not(:disabled) {

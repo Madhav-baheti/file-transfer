@@ -29,7 +29,7 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
 
   return (
     <div className={styles.screenCard}>
-      <div className={styles.innerCard}>
+      <div className={`${styles.innerCard} ${styles.createInnerCard}`}>
         <button className={styles.backButton} onClick={onCancel} type="button">
           ← Back
         </button>

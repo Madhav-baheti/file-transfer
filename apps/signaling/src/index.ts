@@ -17,8 +17,12 @@ const rateLimiter = new TokenBucketRateLimiter(config.rateLimitCapacity, config.
 const aliveClients = new WeakMap<WebSocket, boolean>();
 let shuttingDown = false;
 
-function log(message: string): void {
-  console.log(`[signaling] ${new Date().toISOString()} ${message}`);
+function log(event: string): void {
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    service: 'signaling',
+    event,
+  }));
 }
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -45,6 +49,7 @@ const server = createServer((req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/health') {
+    log('health_check');
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -121,6 +126,7 @@ wss.on('connection', (ws, req) => {
     config.trustProxyHops,
   );
   aliveClients.set(ws, true);
+  log('websocket_client_connected');
   ws.on('pong', () => {
     aliveClients.set(ws, true);
   });
@@ -149,11 +155,13 @@ wss.on('connection', (ws, req) => {
     switch (msg.type) {
       case 'create': {
         if (!rateLimiter.consume(ip)) {
+          log('rate_limit_rejected operation=create');
           send(ws, { type: 'error', reason: 'Rate limit exceeded, please wait', code: 'RATE_LIMITED' });
           return;
         }
 
         const session = sessionStore.createSession({ ws, ip });
+        log('session_created');
         send(ws, {
           type: 'created',
           sessionId: session.id,
@@ -164,6 +172,7 @@ wss.on('connection', (ws, req) => {
 
       case 'join': {
         if (!rateLimiter.consume(ip)) {
+          log('rate_limit_rejected operation=join');
           send(ws, { type: 'error', reason: 'Rate limit exceeded, please wait', code: 'RATE_LIMITED' });
           return;
         }
@@ -174,10 +183,12 @@ wss.on('connection', (ws, req) => {
           pairingMethod: msg.pairingMethod,
         });
         if ('error' in result) {
+          log(`session_join_rejected reason=${result.error}`);
           send(ws, { type: 'error', reason: `Join error: ${result.error}`, code: result.error });
           return;
         }
 
+        log('session_peer_joined');
         // Notify responder that they've joined
         send(ws, { type: 'joined', role: 'responder' });
 
@@ -223,6 +234,7 @@ wss.on('connection', (ws, req) => {
           }
 
           sessionStore.deleteSession(userSession.session.id);
+          log('session_closed');
         }
         ws.close();
         break;
@@ -231,6 +243,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    log('websocket_client_disconnected');
     const userSession = sessionStore.findSessionBySocket(ws);
     if (userSession) {
       const peer = userSession.role === 'initiator'
@@ -242,6 +255,7 @@ wss.on('connection', (ws, req) => {
       }
 
       sessionStore.deleteSession(userSession.session.id);
+      log('session_closed');
     }
   });
 });

@@ -69,10 +69,10 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
 
           {isConnecting && (
             <div className={styles.statusBox} role="status" aria-live="polite">
-              <div className={styles.pulseDot} />
+              <span className={styles.loadingSpinner} aria-hidden="true" />
               <span>
                 {isWaking
-                  ? 'Waking up the pairing service. On the free plan this can take up to a minute.'
+                  ? "Render's free pairing service is waking up. This can take up to a minute."
                   : 'Connecting to the pairing service...'}
               </span>
             </div>

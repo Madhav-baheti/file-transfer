@@ -27,6 +27,7 @@ import {
 import { CreateScreen } from './screens/CreateScreen';
 import { JoinScreen } from './screens/JoinScreen';
 import { ConnectedScreen } from './screens/ConnectedScreen';
+import screenStyles from './screens/Screens.module.css';
 import { NavBar } from './components/NavBar';
 import { DecorativeTiles } from './components/DecorativeTiles';
 import { PairingCards } from './components/PairingCards';
@@ -1220,12 +1221,12 @@ export function App() {
               <div className={styles.statusCardOuter}>
                 <div className={styles.statusCardInner}>
                   <div className={styles.statusIcon} aria-hidden="true">
-                    ⚡
+                    <span className={screenStyles.loadingSpinner} />
                   </div>
                   <h2 className={styles.statusTitle}>Connecting...</h2>
                   <p className={styles.statusText} role="status" aria-live="polite">
                     {signalingPending
-                      ? 'Waking up the pairing service. On the free Render plan this can take up to a minute.'
+                      ? "Render's free pairing service is waking up. This can take up to a minute."
                       : 'Peer joined. Establishing direct WebRTC connection...'}
                   </p>
                   <button

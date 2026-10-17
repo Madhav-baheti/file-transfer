@@ -79,11 +79,14 @@ export const CreateScreen: React.FC<CreateScreenProps> = ({
         )}
 
         <div className={styles.statusBox}>
-          <div className={styles.pulseDot} />
-          <span>
+          {(!code || isWaking) && <span className={styles.loadingSpinner} aria-hidden="true" />}
+          {!code && !isWaking && <div className={styles.pulseDot} />}
+          <span role="status" aria-live="polite">
             {isWaking
-              ? 'Waking up the pairing service. On the free plan this can take up to a minute.'
-              : 'Waiting for peer to join... (Expires in 5 min)'}
+              ? "Render's free pairing service is waking up. This can take up to a minute."
+              : !code
+                ? 'Connecting to the pairing service and creating your code...'
+                : 'Waiting for peer to join... (Expires in 5 min)'}
           </span>
         </div>
 

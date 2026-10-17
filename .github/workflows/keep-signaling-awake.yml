@@ -1,0 +1,21 @@
+name: Keep Render signaling service awake
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping signaling health endpoint
+        run: >-
+          curl --fail --silent --show-error
+          --retry 5 --retry-all-errors --retry-delay 10
+          --retry-max-time 120 --max-time 60
+          https://quickdrop-signaling-t2a5.onrender.com/health

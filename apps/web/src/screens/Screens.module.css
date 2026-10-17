@@ -153,6 +153,23 @@
   animation: pulseDotAnim 1.8s ease-in-out infinite;
 }
 
+.loadingSpinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--space-4);
+  height: var(--space-4);
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: loadingSpin 800ms linear infinite;
+}
+
+@keyframes loadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes pulseDotAnim {
   0%, 100% {
     transform: scale(0.9);
@@ -165,7 +182,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulseDot {
+  .pulseDot,
+  .loadingSpinner {
     animation: none;
   }
 }

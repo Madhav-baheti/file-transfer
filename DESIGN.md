@@ -2,6 +2,19 @@
 
 > **For the coding agent:** This file describes how QuickDrop should look. All values live in `apps/web/src/styles/tokens.css`. Component CSS may use **only** those CSS variables (no hardcoded colors, radii, shadows, spacing or font sizes). Behavior and architecture rules stay in `TECH_STACK.md`; this file never overrides them.
 
+## Status (as built)
+
+- The web app uses the QuickDrop visual system and responsive layouts described below.
+- QR-link pairing is implemented; the QR has a typed-code alternative.
+- Typed pairing uses a six-digit rendezvous code and an eight-digit numeric verification code.
+- Connection and transfer status, incoming-file acceptance, progress, and cancellation are present in the UI.
+- A visible theme control supports light and dark themes, with system preference as the default.
+- Theme choice is held for the current browser session rather than persisted.
+- PWA manifest, service-worker, and share-target handling are implemented in source.
+- Multi-file queue UI and ordered per-file states are implemented in source.
+- File transfer uses receiver acknowledgements and a 16 MiB in-flight window.
+- No TURN relay, interrupted-transfer resume, or CSP is implemented; real-device accessibility, installability, and transfer behavior remain unverified.
+
 **Reference (inspiration only):** "Gig Share Website" by Halo Lab on Dribbble, https://dribbble.com/shots/14673292-Gig-Share-Website
 
 We borrow the *mood and structure*: a calm slate hero inside a soft frame, a light geometric headline, one dashed "add your files" drop zone, and bold abstract tiles for color. We do **not** reuse their logo, illustrations, patterns, icons or copy. Build our own tile patterns and text.
@@ -89,7 +102,7 @@ Build each as its own file with its own CSS module.
 
 **Tiles (decoration):** rounded squares (`--radius-tile`) with bold geometric patterns (diagonal splits, quarter circles, stripes) using only the accent colors, with `--shadow-tile`. Place 3 to 5 around the hero edges, slightly overlapping the frame. **Draw our own patterns** with CSS gradients or small inline SVGs. They are decorative: `aria-hidden="true"`, no tab stops.
 
-**Light sections:** a "How it works" row of three numbered steps (Create, Share the code, Send), and a "Why it's private" block with short points (end-to-end encrypted, nothing stored on a server, direct connection). Cards use `--color-card`, `--radius-card` and `--shadow-card`.
+**Light sections:** a "How it works" row of three numbered steps (Create, Share the code, Send), and a "Why it's private" block with short points (end-to-end encrypted, no file contents sent to the signaling server, direct connection). Cards use `--color-card`, `--radius-card` and `--shadow-card`.
 
 ## 7. Motion
 
@@ -106,8 +119,8 @@ Build each as its own file with its own CSS module.
 ## 9. Accessibility
 
 - Visible focus on every interactive element. Color is never the only signal (use icons and text for states).
-- The QR code (a later phase) always has the typed-code alternative next to it.
-- Respect `prefers-reduced-motion` and `prefers-color-scheme` (dark mode is a later phase; the tokens are structured so a dark theme can override them in one block).
+- The QR code has a typed-code alternative next to it.
+- Respect `prefers-reduced-motion` and `prefers-color-scheme`; the implemented theme control also allows switching between light and dark themes.
 
 ## 10. Do and Don't
 

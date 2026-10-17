@@ -2,6 +2,19 @@
 
 > **For the coding agent:** Read `PRD.md` first, then this file. This file is the source of truth for *how* to build. Where the two disagree, this file wins, and any deviation is listed in Section 12. Do not add dependencies, services, or features that are not listed here without asking.
 
+## Status (as built)
+
+- QR-link pairing and six-digit numeric rendezvous codes are implemented.
+- Code-only pairing requires comparing an eight-digit numeric verification code; it is not word-based.
+- The handshake uses commit-then-reveal ephemeral ECDH bound to DTLS fingerprints; PAKE is not implemented.
+- `SecureTransport` is the application-message boundary to and from the raw WebRTC data channel.
+- File transfer uses chunks, receiver acknowledgements, backpressure, and a 16 MiB sender in-flight window.
+- The receiver checks chunk order, byte totals, and SHA-256; its in-memory fallback is capped at 2 GiB.
+- Multi-file queue, PWA/share-target, and dark-theme code exists; real-device behavior is not claimed verified.
+- The signaling server and static site are deployed on Render's free plan using `render.yaml`.
+- TURN credential code exists, but no TURN relay is configured; interrupted-transfer resume is not implemented.
+- CSP is not configured; the Render Blueprint sets `Referrer-Policy`, `X-Content-Type-Options`, and `X-Frame-Options`.
+
 ## 1. Decisions at a Glance
 
 | Concern | Decision |
@@ -12,16 +25,16 @@
 | Signaling server | Node.js (current LTS) + `ws` WebSocket library, in-memory sessions |
 | Shared code | `packages/protocol`: message types and validation (zod) |
 | Transport | WebRTC `RTCDataChannel` (ordered, reliable) |
-| NAT traversal | Public STUN in v1; coturn TURN in P1 |
+| NAT traversal | Public STUN; TURN credential generation exists, but no TURN relay is configured |
 | Key exchange | Ephemeral ECDH P-256 via Web Crypto, keys bound to DTLS fingerprints |
 | Payload encryption | AES-256-GCM via Web Crypto, per-chunk nonce |
-| Pairing | QR (high-entropy secret in URL fragment) + 6-digit numeric code (rendezvous) + SAS verification |
-| QR generate / scan | `qrcode` / `qr-scanner` |
-| Large file saving | File System Access API (Chromium), Blob fallback elsewhere |
-| PWA | `vite-plugin-pwa` |
-| Tests | Vitest (unit), Playwright (end-to-end with two browser contexts) |
+| Pairing | QR (high-entropy secret in URL fragment) + 6-digit numeric rendezvous code + 8-digit numeric SAS |
+| QR generate / scan | `qrcode` renders QR images; opening the link joins. No in-app camera scanner is present. |
+| Large file saving | File System Access API where supported; in-memory Blob fallback capped at 2 GiB |
+| PWA | `vite-plugin-pwa` manifest/service worker and Web Share Target handling are present in source |
+| Tests | Vitest; no Playwright end-to-end suite is configured |
 | Lint / format | ESLint + Prettier |
-| Hosting | Static host for `apps/web`, small Node host for `apps/signaling` |
+| Hosting | Render static site and Node signaling service on the free plan (`render.yaml`) |
 
 **Why TypeScript everywhere:** WebRTC and Web Crypto only exist in the browser, so the client must be JS/TS. Using the same language for the signaling server lets both sides share one protocol package, which removes a whole class of mismatch bugs. A Java backend would add a second language for no benefit here.
 
@@ -29,9 +42,9 @@
 
 ## 2. Development Environment (Windows 11)
 
-- Install Node.js current LTS, then `corepack enable` and use **pnpm**.
+- Install Node.js 22, then `corepack enable` and use **pnpm**.
 - Use PowerShell or Git Bash; every command in this repo must work in PowerShell.
-- Test on real devices: run the web app with `vite --host` and open it from a phone on the same Wi-Fi. Note: camera access (QR scanning) and Web Crypto need a **secure context**, so use `localhost` on the same machine or an HTTPS tunnel (for example `cloudflared` or `ngrok`) for phone testing.
+- Test on real devices: run the web app with Vite and open it from a phone on the same Wi-Fi. Web Crypto requires a **secure context**, so use `localhost` on the same machine or an HTTPS tunnel for phone testing.
 - Git from the first commit, with small commits per feature, because this repo is also a GitHub portfolio piece.
 
 ## 3. Repository Structure
@@ -47,33 +60,19 @@ p2p-transfer/
 ├─ .eslintrc.cjs / eslint.config.js
 ├─ .prettierrc
 ├─ apps/
-│  ├─ web/                     # React + Vite client (PWA)
-│  │  ├─ index.html
-│  │  ├─ vite.config.ts
-│  │  └─ src/
-│  │     ├─ main.tsx
-│  │     ├─ App.tsx
-│  │     ├─ screens/           # Home, Create, Join, Transfer
-│  │     ├─ components/        # QRDisplay, QRScanner, CodeInput, FileDrop, ProgressBar
-│  │     ├─ lib/
-│  │     │  ├─ signaling.ts    # WebSocket client
-│  │     │  ├─ peer.ts         # RTCPeerConnection + data channel wrapper
-│  │     │  ├─ crypto.ts       # ECDH, HKDF, AES-GCM, SAS
-│  │     │  ├─ transfer.ts     # chunking, backpressure, reassembly, hashing
-│  │     │  ├─ session.ts      # pairing state machine
-│  │     │  └─ words.ts        # word list for short codes + SAS
-│  │     └─ styles/
+│  ├─ web/                     # React + Vite client; PWA implementation in source
+│  │  ├─ src/
+│  │  │  ├─ App.tsx
+│  │  │  ├─ components/        # App UI, pairing, queue, and transfer components
+│  │  │  ├─ lib/               # WebRTC, SecureTransport, transfer logic
+│  │  │  └─ styles/
+│  │  └─ test/                 # Vitest client tests
 │  └─ signaling/               # Node.js signaling server
-│     └─ src/
-│        ├─ index.ts           # HTTP + WebSocket bootstrap
-│        ├─ sessions.ts        # in-memory session store with expiry
-│        ├─ rateLimit.ts       # token bucket per IP
-│        └─ config.ts
+│     ├─ src/                  # HTTP, WebSocket, sessions, config
+│     └─ test/                 # Vitest server tests
 ├─ packages/
 │  └─ protocol/                # shared message types + zod schemas
 │     └─ src/index.ts
-└─ tests/
-   └─ e2e/                     # Playwright specs
 ```
 
 ## 4. Frontend (`apps/web`)
@@ -81,26 +80,26 @@ p2p-transfer/
 - **React 18+ with Vite and TypeScript (strict).** Function components and hooks only.
 - **State:** `useReducer` for the pairing and transfer state machines. No Redux, Zustand, or similar in v1.
 - **Routing:** none needed; a single-page flow driven by session state (`home → create|join → connected`).
-- **QR:** `qrcode` to render the QR to a canvas; `qr-scanner` to read from the camera. Both run entirely client side.
-- **PWA:** `vite-plugin-pwa` for the manifest and service worker. Add the Web Share Target in P1.
+- **QR:** `qrcode` renders a QR link to a canvas. Joining from QR opens the link; no in-app camera scanner is present.
+- **PWA:** `vite-plugin-pwa` configures a manifest and service worker; Web Share Target handling is present in source. Installed-device behavior still requires testing.
 - **File saving:**
   - Chromium: `showSaveFilePicker()` and write chunks to a `FileSystemWritableFileStream` as they arrive, so memory stays constant.
-  - Other browsers (Firefox, Safari): collect chunks into a `Blob` and trigger a download. Show a warning above a size threshold (suggest 1 GB) that this path uses RAM.
+  - When the File System Access API is unavailable, collect chunks into a `Blob` and trigger a download; this fallback holds file contents in memory and has a 2 GiB limit in code.
 - **File reading:** `File.stream()` or `Blob.slice()` to read in 16 KB chunks; never `readAsArrayBuffer` on a whole file.
-- **Styling:** CSS modules, mobile first (design at 360 px width), `prefers-color-scheme` for dark mode.
+- **Styling:** CSS modules, mobile first (design at 360 px width), system color preference, and a session-only theme control.
 
 ## 5. Signaling Server (`apps/signaling`)
 
-- **Node.js + `ws`**, one process, no database. Sessions live in a `Map` and are deleted on expiry, completion, or disconnect.
-- **Responsibilities (and nothing else):** create a session, let exactly one second client join, relay opaque signaling messages between the two, then forget the session.
+- **Node.js + `ws`**, one process, no database. Signaling sessions live in a `Map` and are deleted on expiry, completion, or disconnect.
+- **Responsibilities:** create a session, let exactly one second client join, relay signaling messages, issue short-lived TURN credentials when configured, and expire in-memory session entries.
 - **It must never** see file bytes, filenames, or encryption keys, and must never log message payloads.
 - **Limits:**
-  - Session expires after 5 minutes if unpaired.
+  - Session entry expires after `SESSION_TTL_MS` (5 minutes by default), measured from creation.
   - Maximum 2 clients per session; a session is single-use.
   - Per-IP token bucket on create and join attempts (for example 10 per minute).
   - Maximum WebSocket message size of 64 KB.
   - Validate `Origin` against an allow-list from environment config.
-- **Config via environment variables:** `PORT`, `ALLOWED_ORIGINS`, `SESSION_TTL_MS`.
+- **Config via environment variables:** `PORT`, `ALLOWED_ORIGINS`, `SESSION_TTL_MS`, `TRUST_PROXY_HOPS`; optional server-only `TURN_URLS` and `TURN_SHARED_SECRET`.
 - **Health endpoint:** `GET /health` returns 200.
 
 ### Signaling protocol (defined in `packages/protocol`, validated with zod on both ends)
@@ -118,13 +117,15 @@ p2p-transfer/
 ## 6. WebRTC and Transfer Protocol
 
 - **Peer connection:** one `RTCPeerConnection`, one ordered reliable `RTCDataChannel` for control and data (a second channel for bulk data can come later if needed).
-- **ICE servers:** configurable list; start with public STUN, add TURN credentials from environment config in P1.
-- **Chunking:** 16 KB messages. Respect backpressure: set `bufferedAmountLowThreshold` (for example 1 MB) and pause sending while `bufferedAmount` is above a high-water mark; resume on the `bufferedamountlow` event.
-- **Application message types over the data channel** (all encrypted after key exchange):
+- **ICE servers:** public STUN is used. The signaling service can issue short-lived TURN credentials if relay settings and a shared secret are configured; no relay is currently configured.
+- **Chunking:** 16 KiB messages. Sender backpressure uses a 1 MiB low threshold and a 2 MiB channel high-water mark, with a 16 MiB acknowledgement window. The receiver acknowledges written bytes.
+- **Application message types through `SecureTransport`** (encrypted after key exchange):
   - `file-offer { id, name, size, mime }` → receiver shows Accept / Decline
   - `file-accept { id }` / `file-decline { id }`
-  - `file-chunk { id, index, bytes }`
-  - `file-end { id, sha256 }` → receiver verifies hash
+  - encrypted binary chunk frames with file ID, chunk index, and payload
+  - `file-ack { id, bytes }` → receiver acknowledges written bytes
+  - `file-end { id, sha256, chunkCount, totalBytes }` → receiver verifies hash, count, and size
+  - `file-result { id, ok, error? }` → receiver reports verification outcome
   - `file-cancel { id }`
   - `text { body }`
 - **Filename safety:** strip path separators and control characters, cap length, never auto-open files.
@@ -133,31 +134,29 @@ p2p-transfer/
 
 Use only the browser's **Web Crypto API** (`crypto.subtle`) plus the platform CSPRNG (`crypto.getRandomValues`). **Do not write any custom cryptographic primitive and do not add a general crypto library in v1.**
 
-1. **Pairing secret.** The QR encodes a URL like `https://<host>/#s=<base64url 128-bit random secret>&c=<code>`. The fragment (`#...`) is never sent to any server.
-2. **Key exchange.** Each side generates an ephemeral ECDH P-256 key pair and sends its public key over the data channel.
-3. **Binding.** Derive the session key with HKDF-SHA-256 from: the ECDH shared secret, the pairing secret (when paired by QR), and both DTLS certificate fingerprints taken from the SDP. This stops a malicious signaling server from silently inserting itself.
+1. **Pairing secret.** The QR encodes a URL carrying a random secret in its fragment. The fragment is not sent to the server.
+2. **Key exchange.** The commit-then-reveal handshake exchanges ephemeral ECDH P-256 public keys through `SecureTransport`.
+3. **Binding.** Derive session keys with HKDF-SHA-256 from the ECDH shared secret, optional QR pairing secret, transcript, and both DTLS certificate fingerprints taken from the SDP. PAKE is not used for code-only pairing.
 4. **Payload encryption.** AES-256-GCM per chunk. Nonce = 96 bits built from a random per-direction prefix plus a counter, never reused with the same key. Include the file id and chunk index as additional authenticated data.
-5. **SAS verification.** Derive a short authentication string (for example three words from a 2048-word list) from the same transcript hash and display it on both devices. For code-based pairing, the app must require the user to confirm the words match before enabling transfers. For QR pairing it is shown but optional.
-6. **Ephemeral only.** Keys exist in memory for the session. Nothing is written to `localStorage`, `IndexedDB`, cookies, or disk.
-7. **Short code format:** a six-digit number from 100000 to 999999. Single-use and 5-minute expiry. Online guessing is limited by the server rate limit.
+5. **SAS verification.** Derive and display an eight-digit numeric value from the transcript. Code-only pairing requires local confirmation after the users compare digits; QR pairing does not require this confirmation.
+6. **Ephemeral only.** Cryptographic keys exist in memory for the session and are not persisted in browser storage.
+7. **Short code format:** a six-digit number from 100000 to 999999. It is a rendezvous identifier, not a PAKE credential. Session entries expire after the configured TTL (five minutes by default); create/join requests are rate-limited.
 
 ## 8. Testing and Quality
 
-- **Unit tests (Vitest):** crypto helpers (encrypt/decrypt round trip, nonce uniqueness, tamper detection), chunker and reassembler, protocol schema validation, session expiry and rate limiting.
-- **End-to-end (Playwright):** open two browser contexts, pair by code, send a text, send a 50 MB file, assert the SHA-256 matches. Run on Chromium first; add Firefox and WebKit later.
-- **Manual device matrix:** phone ↔ laptop on same Wi-Fi, phone on mobile data ↔ laptop on Wi-Fi (exercises STUN/TURN), and one strict-network case.
-- **CI:** GitHub Actions running lint, type-check, unit tests, and the Playwright suite on each push.
+- **Automated tests:** Vitest tests are present for web and signaling. The protocol package's test script reports no tests; no Playwright end-to-end suite or CI workflow is configured.
+- **Manual device testing:** phone/laptop, mobile-data, and restrictive-network behavior require real-device testing and are not claimed verified.
 - **TypeScript:** `strict: true`, no `any` without a comment explaining why.
 
 ## 9. Deployment
 
 | Piece | Recommendation | Notes |
 |---|---|---|
-| `apps/web` | Any static host with HTTPS (Cloudflare Pages, Netlify, or Vercel) | HTTPS is mandatory for camera and Web Crypto. |
-| `apps/signaling` | A small always-on Node host (Render, Fly.io, or Railway) | Must support WebSockets. Check each provider's current free-tier limits before choosing. |
-| TURN (P1) | Self-hosted coturn on a small VM, or a hosted TURN service | Needed for strict NATs. Use short-lived credentials, never hard-code a static password in the client. |
+| `apps/web` | Render static site defined in `render.yaml` | Deployed on the free plan; HTTPS URL is configured in the Blueprint. |
+| `apps/signaling` | Render Node web service defined in `render.yaml` | Deployed on the free plan and supports WebSockets. |
+| TURN | Optional coturn relay with short-lived credentials | Credential code exists, but no TURN relay is currently configured. |
 
-Set a strict **Content-Security-Policy** on the web app (no inline scripts, `connect-src` limited to the signaling host) and add `Referrer-Policy: no-referrer`.
+The Render Blueprint sets `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`. It does not currently set a Content-Security-Policy.
 
 ## 10. Build Order for the Agent
 
@@ -168,9 +167,9 @@ Complete each phase and show it working before starting the next. Commit after e
 3. **Connect two tabs:** pairing by code, WebRTC connected, exchange a text message in plaintext (proof of concept).
 4. **File transfer:** chunking, backpressure, accept/decline, progress, cancel, hash verification. Test with a 1 GB file for constant memory use.
 5. **Crypto layer:** ECDH + HKDF + AES-GCM, DTLS fingerprint binding, SAS screen. All data now encrypted; tests for tampering.
-6. **QR pairing:** generate and scan, fragment-carried secret.
-7. **PWA and polish:** install prompt, error states, dark mode, accessibility pass.
-8. **P1 items:** multi-file queue, TURN fallback, share target, resume.
+6. **QR pairing:** QR-link generation and fragment-carried secret implemented.
+7. **PWA and polish:** manifest, service worker, share-target handling, theme control, and UI polish implemented in source; device validation remains.
+8. **P1 items:** multi-file queue implemented; TURN relay not configured; interrupted-transfer resume not implemented.
 9. **Docs:** README with architecture diagram, threat model, setup steps, and demo GIF.
 
 ## 11. Rules for the Agent
@@ -186,8 +185,8 @@ Complete each phase and show it working before starting the next. Commit after e
 
 ## 12. Deviations from the PRD
 
-- **PAKE is deferred to v1.1.** The PRD proposed a PAKE (CPace/SPAKE2) for the short code. There is no widely trusted, drop-in browser PAKE library, and hand-implementing one is risky. For v1 the short code is a rendezvous identifier only; authentication comes from the DTLS-bound key derivation plus **mandatory SAS confirmation** for code pairing, with rate-limited, single-use, 5-minute codes. Revisit with an audited CPace implementation after the MVP works.
-- **Dark mode** is included in the polish phase instead of being P2.
+- **PAKE is not implemented.** The typed code is a rendezvous identifier; code-only pairing authenticates through user comparison and confirmation of the numeric SAS.
+- **Dark mode** is implemented in the polish phase rather than remaining only a P2 proposal.
 
 ## 13. First Prompt to Paste into Antigravity
 

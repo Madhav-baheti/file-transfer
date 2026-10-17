@@ -89,3 +89,22 @@
     animation: none;
   }
 }
+
+@media (max-width: 899px) {
+  .tileOne,
+  .tileThree {
+    display: block;
+    width: calc(var(--space-8) + var(--space-5));
+    height: calc(var(--space-8) + var(--space-5));
+  }
+
+  .tileOne {
+    top: 30%;
+    left: calc(var(--space-5) * -1);
+  }
+
+  .tileThree {
+    top: 59%;
+    right: calc(var(--space-5) * -1);
+  }
+}

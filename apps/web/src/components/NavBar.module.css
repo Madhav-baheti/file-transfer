@@ -19,7 +19,7 @@
   align-items: center;
   gap: var(--space-2);
   color: var(--color-text-on-hero);
-  font-size: var(--text-h3);
+  font-size: var(--text-h2);
   font-weight: var(--weight-medium);
   letter-spacing: -0.02em;
   text-decoration: none;
@@ -76,8 +76,8 @@
 }
 
 .themeButton {
-  width: var(--space-7);
-  height: var(--space-7);
+  width: calc(var(--space-7) + var(--space-2));
+  height: calc(var(--space-7) + var(--space-2));
   border: 1px solid var(--color-border-on-hero);
   border-radius: var(--radius-pill);
   color: var(--color-text-on-hero);
@@ -96,8 +96,8 @@
 }
 
 .themeIcon {
-  width: var(--space-4);
-  height: var(--space-4);
+  width: var(--space-5);
+  height: var(--space-5);
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -106,8 +106,8 @@
 }
 
 .mintIconButton {
-  width: var(--space-7);
-  height: var(--space-7);
+  width: calc(var(--space-7) + var(--space-2));
+  height: calc(var(--space-7) + var(--space-2));
   background: var(--color-accent-mint);
   border-radius: var(--radius-button);
   display: flex;
@@ -128,30 +128,32 @@
 }
 
 .iconSvg {
-  width: var(--space-4);
-  height: var(--space-4);
+  width: var(--space-5);
+  height: var(--space-5);
   stroke: currentColor;
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.outlinedButton {
-  border: 1px solid var(--color-border-on-hero);
-  border-radius: var(--radius-button);
-  padding: var(--space-2) var(--space-4);
-  color: var(--color-text-on-hero);
-  font-size: var(--text-small);
-  font-weight: var(--weight-medium);
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
+@media (max-width: 480px) {
+  .logo {
+    font-size: calc(var(--text-h2) - var(--space-1));
+  }
 
-.outlinedButton:hover {
-  border-color: var(--color-frame);
-  background: var(--overlay-light-08);
-}
+  .rightGroup {
+    gap: var(--space-2);
+  }
 
-.outlinedButton:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring-on-hero);
+  .themeButton,
+  .mintIconButton {
+    width: calc(var(--space-7) + var(--space-1));
+    height: calc(var(--space-7) + var(--space-1));
+  }
+
+  .themeIcon,
+  .iconSvg {
+    width: calc(var(--space-4) + var(--space-1));
+    height: calc(var(--space-4) + var(--space-1));
+  }
 }

@@ -65,13 +65,6 @@ export const NavBar: React.FC<NavBarProps> = ({
           </svg>
         </button>
 
-        <button
-          type="button"
-          className={styles.outlinedButton}
-          onClick={onStartSession}
-        >
-          Share Direct
-        </button>
       </div>
     </nav>
   );

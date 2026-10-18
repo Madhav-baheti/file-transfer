@@ -31,3 +31,6 @@ playwright-report/
 test-results/
 
 *.tsbuildinfo
+quickdrop-demo.txt
+quickdrop-transfer-test.txt
+quickdrop_demo_file.png
